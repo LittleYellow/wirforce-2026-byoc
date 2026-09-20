@@ -1,0 +1,3 @@
+# 統一換行字元：repo 內一律 LF，避免 Mac／Windows 協作時整份檔案變成 diff
+* text=auto eol=lf
+*.xlsx binary

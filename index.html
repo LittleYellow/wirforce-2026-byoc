@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>WirForce 2026 BYOC 座位查詢</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;800&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --sheet:#FFF0C2;      /* 原座位表的底色 */
+  --paper:#FFFAEA;
+  --ink:#2B1B10;
+  --muted:#7A6247;
+  --line:#E3CF96;
+  --seat:#C23B22;       /* 原表座位格的紅 */
+  --seat-ink:#FFF6E6;
+  --hit:#1F5FBF;
+  --radius:6px;
+  --id-font:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --body-font:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --sheet:#1E1810; --paper:#2A2217; --ink:#F6EBD3; --muted:#BFA985; --line:#4A3D2A;
+    --seat:#D2503A; --seat-ink:#FFF6E6; --hit:#7FB0FF;
+  }
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--sheet);color:var(--ink);font:16px/1.6 var(--body-font);-webkit-text-size-adjust:100%}
+main{max-width:720px;margin:0 auto;padding:20px 16px 48px}
+
+header h1{font-family:var(--id-font);font-weight:800;font-size:clamp(34px,9vw,56px);line-height:.95;margin:8px 0 4px;letter-spacing:.5px}
+header h1 span{display:block;font-family:var(--body-font);font-weight:700;font-size:.42em;letter-spacing:0;margin-top:6px}
+header p{margin:6px 0 18px;color:var(--muted);font-size:14px}
+
+.search{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--sheet);padding:8px 0 12px}
+.search label{display:block;font-size:14px;color:var(--muted);margin-bottom:6px}
+.search input{width:100%;font:500 20px/1.3 var(--body-font);color:var(--ink);background:var(--paper);
+  border:2px solid var(--ink);border-radius:var(--radius);padding:14px 16px;outline:none}
+.search input:focus-visible{box-shadow:0 0 0 3px var(--hit)}
+.status{font-size:13px;color:var(--muted);margin-top:8px;min-height:1.4em}
+
+/* 查詢結果：座位票根 */
+.ticket{display:grid;grid-template-columns:auto 1fr;background:var(--paper);border:2px solid var(--ink);border-radius:var(--radius);margin:14px 0;overflow:hidden}
+.stub{background:var(--seat);color:var(--seat-ink);padding:14px 18px;display:flex;flex-direction:column;justify-content:center;align-items:center;min-width:112px;border-right:2px dashed var(--seat-ink)}
+.stub .id{font:800 52px/1 var(--id-font)}
+.stub .sub{font-size:13px;margin-top:4px;opacity:.9}
+.info{padding:14px 16px;min-width:0}
+.info .name{font-size:22px;font-weight:700;overflow-wrap:anywhere;margin:0}
+.info .name.empty{color:var(--muted);font-weight:500}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 10px}
+.tag{font-size:13px;border:1.5px solid var(--ink);border-radius:999px;padding:1px 10px}
+.near{margin:0;padding:0;list-style:none;font-size:15px}
+.near li{display:flex;gap:10px;padding:3px 0;border-top:1px solid var(--line)}
+.near li:first-child{border-top:0}
+.near b{flex:0 0 3.5em;color:var(--muted);font-weight:500}
+.near button{all:unset;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.near button:focus-visible{outline:2px solid var(--hit);outline-offset:2px}
+
+/* 同桌小地圖：照原表的樣子畫 */
+.table-map{grid-column:1/-1;border-top:2px solid var(--ink);padding:10px 0 12px;background:var(--sheet)}
+.table-map h3{font-size:13px;font-weight:500;color:var(--muted);margin:0 16px 8px}
+.scroller{overflow-x:auto;padding:0 16px 4px;scrollbar-width:thin}
+.grid{display:grid;gap:2px;width:max-content}
+.cell{font:600 15px/1 var(--id-font);text-align:center;padding:6px 0;width:64px;color:var(--seat-ink);background:var(--seat);border:1px solid rgba(0,0,0,.25)}
+.nm{font-size:12px;line-height:1.25;text-align:center;padding:4px 2px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.aisle{height:2px;background:var(--line);margin:1px 0}
+.cell.hit{outline:3px solid var(--hit);outline-offset:-1px;position:relative;z-index:1}
+.nm.hit{font-weight:700;color:var(--hit)}
+
+/* 全區地圖（相對位置圖，不是按實際場地比例畫的） */
+[hidden]{display:none!important}
+.mapbar{margin:10px 0 0}
+.btn{font:500 15px/1 var(--body-font);cursor:pointer;background:var(--paper);color:var(--ink);
+  border:1.5px solid var(--ink);border-radius:999px;padding:9px 16px}
+.btn[disabled]{opacity:.45;cursor:default}
+.btn:focus-visible{outline:3px solid var(--hit)}
+.mapwrap{margin:12px 0 0;background:var(--paper);border:2px solid var(--ink);border-radius:var(--radius);overflow:hidden}
+.maptools{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 12px;border-bottom:1.5px solid var(--line)}
+.zoom{display:flex;border:1.5px solid var(--ink);border-radius:999px;overflow:hidden}
+.zoom button{all:unset;cursor:pointer;font:500 14px/1 var(--body-font);padding:8px 14px;min-width:44px;text-align:center}
+.zoom button+button{border-left:1.5px solid var(--ink)}
+.zoom button.on{background:var(--ink);color:var(--paper)}
+.zoom button:focus-visible{outline:2px solid var(--hit);outline-offset:-2px}
+.jump{display:flex;flex-wrap:wrap;gap:6px;flex:1 1 100%}
+.jump button{all:unset;cursor:pointer;font:500 13px/1 var(--body-font);color:var(--ink);
+  border:1.5px solid var(--line);border-radius:999px;padding:7px 12px;min-width:40px;text-align:center}
+.jump button:focus-visible{outline:2px solid var(--hit);outline-offset:1px}
+.legend{margin:0;font-size:12px;color:var(--muted);flex:1 1 100%}
+.legend b{font-weight:500;color:var(--ink)}
+.mapscroll{overflow:auto;max-height:min(52vh,520px);padding:10px 12px;
+  overscroll-behavior:contain;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+.mapgrid{display:grid;position:relative;width:max-content;gap:1px;--cell:8px;--gap:3px}
+.mapgrid .s{background:var(--c0);color:var(--muted);border-radius:1px;font:600 10px/1 var(--id-font);
+  display:flex;align-items:center;justify-content:center;overflow:hidden;min-width:0;cursor:pointer}
+.mapgrid .s.on{background:var(--c);color:var(--t)}
+.mapgrid .s i{font-style:normal}
+/* 區域標題捲動時固定在上緣，才知道自己看的是哪一區 */
+.mapgrid .lbl{font:700 12px/1 var(--id-font);color:var(--muted);text-align:center;padding-bottom:5px;
+  letter-spacing:1px;position:sticky;top:0;z-index:3;background:var(--paper)}
+.mapgrid .z{background:var(--c0);color:var(--t);border:1.5px dashed var(--c);border-radius:3px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  overflow:hidden;min-width:0;cursor:pointer;text-align:center;padding:1px}
+.mapgrid .z b{font:800 12px/1 var(--id-font);color:var(--ink)}
+.mapgrid .z em{font-style:normal;font-size:10px;line-height:1.1;color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.mapgrid.z-fit{gap:0}        /* 全區要塞進畫面，格線先省下來 */
+.mapgrid.z-fit .s{font-size:0}
+.mapgrid.z-fit .z b,.mapgrid.z-fit .z em,.mapgrid.z-mid .z em{display:none}
+.mapgrid.z-mid .s{font-size:9px}
+.mapgrid.z-mid .s i{display:none}
+.mapgrid.z-mid .z b{font-size:11px}
+.mapgrid.z-big .s{font-size:12px}
+.mapgrid .rel{outline:2px dashed var(--hit);outline-offset:-1px;z-index:1}
+.mapgrid .sel{outline:3px solid var(--hit);outline-offset:-1px;z-index:2}
+.stub.zone{background:var(--muted)}
+.list .sid.zn{font:700 15px/1 var(--body-font);color:var(--muted)}
+
+.list{margin:12px 0;padding:0;list-style:none}
+.list button{all:unset;box-sizing:border-box;cursor:pointer;display:flex;align-items:center;gap:12px;width:100%;padding:10px 12px;background:var(--paper);border:1.5px solid var(--line);border-radius:var(--radius);margin-bottom:6px}
+.list button:focus-visible{outline:3px solid var(--hit)}
+.list .sid{font:800 22px/1 var(--id-font);color:var(--seat);min-width:4.2em}
+.list .n{overflow-wrap:anywhere}
+.empty-state{padding:18px 0;color:var(--muted)}
+.banner{background:var(--paper);border:1.5px dashed var(--muted);border-radius:var(--radius);
+  padding:10px 12px;font-size:14px;line-height:1.6;margin:10px 0 0}
+.banner code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;
+  background:var(--sheet);border:1px solid var(--line);border-radius:4px;padding:1px 5px;overflow-wrap:anywhere}
+.src{display:inline-block;margin-top:10px;font-size:14px;color:var(--ink)}
+footer{margin-top:40px;font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-top:12px}
+footer a{color:inherit}
+@media (prefers-reduced-motion:no-preference){.ticket{animation:pop .18s ease-out}@keyframes pop{from{transform:translateY(4px);opacity:.4}}}
+@media (max-width:420px){.stub{min-width:92px;padding:12px}.stub .id{font-size:42px}}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>WirForce 2026<span>BYOC 座位查詢</span></h1>
+    <p>輸入玩家暱稱或座位編號，找到他坐哪、隔壁和對面是誰。也可以用團名找空白領域營區。</p>
+  </header>
+
+  <div class="search" role="search">
+    <label for="q">暱稱、座位編號或空白領域團名</label>
+    <input id="q" type="search" autocomplete="off" autocapitalize="off" spellcheck="false"
+           placeholder="例如：奶油、A24、放影旅團">
+    <div class="status" id="status" aria-live="polite">載入座位資料中…</div>
+  </div>
+
+  <div id="notice"></div>
+
+  <div class="mapbar">
+    <button id="mapToggle" class="btn" type="button" aria-expanded="false" aria-controls="map" disabled>
+      看全區地圖</button>
+  </div>
+
+  <section class="mapwrap" id="map" hidden aria-label="BYOC 全區座位相對位置圖">
+    <div class="maptools">
+      <div class="zoom" role="group" aria-label="地圖縮放">
+        <button type="button" data-zoom="fit" class="on">全區</button>
+        <button type="button" data-zoom="mid">中</button>
+        <button type="button" data-zoom="big">大</button>
+      </div>
+      <div class="jump" id="mapJump" role="group" aria-label="跳到區域"></div>
+      <p class="legend" id="mapLegend"></p>
+    </div>
+    <div class="mapscroll" id="mapScroll"><div class="mapgrid" id="mapGrid"></div></div>
+  </section>
+
+  <div id="out"></div>
+
+  <footer>
+    座位資料整理自社群維護的
+    <a id="sheetLink" target="_blank" rel="noopener">WirForce 2026 座位表</a>，
+    以原表為準。暱稱是玩家自行登記的，若找不到可能還沒登記或版面剛改過。
+  </footer>
+</main>
+
+<script>
+const SHEET_ID = "13n2z8QgxQL-xWLR2K4zy75Xw1aeu6Grf-DuGvZBckXY";
+const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit#gid=0`;
+const CACHE_KEY = "wf2026-seats";
+document.getElementById("sheetLink").href = SHEET_URL;
+
+// 找不到 seats.json 時的範例資料（依座位表截圖重建的一小塊 A 區），部署後不會用到
+const DEMO = {"generated_at":"2026-09-20 07:57","sheet":"工作表1","total":48,"occupied":32,"rows":[{"r":100,"side":1,"seats":["A01","A02","A03","A04","A05","A06","A07","A08","A09","A10","A11","A12"]},{"r":103,"side":-1,"seats":["A28","A27","A26","A25","A24","A23","A22","A21","A20","A19","A18","A17"]},{"r":104,"side":1,"seats":["A29","A30","A31","A32","A33","A34","A35","A36","A37","A38","A39","A40"]},{"r":107,"side":-1,"seats":["A52","A51","A50","A49","A48","A47","A46","A45","A44","A43","A42","A41"]}],"seats":[{"id":"A01","area":"A","num":1,"cell":"E100","color":"#C8452F","name":"shirotsume","big":true,"partner":"A02","opposite":"A28","behind":null,"left":null,"right":"A02","row_no":1,"facing":"面上排（暱稱寫在下方）","_row":100},{"id":"A02","area":"A","num":2,"cell":"F100","color":"#C8452F","name":"shirotsume","big":true,"partner":"A01","opposite":"A27","behind":null,"left":"A01","right":"A03","row_no":1,"facing":"面上排（暱稱寫在下方）","_row":100},{"id":"A03","area":"A","num":3,"cell":"G100","color":"#C8452F","name":"kumaoji","big":true,"partner":"A04","opposite":"A26","behind":null,"left":"A02","right":"A04","row_no":1,"facing":"面上排（暱稱寫在下方）","_row":100},{"id":"A04","area":"A","num":4,"cell":"H100","color":"#C8452F","name":"kumaoji","big":true,"partner":"A03","opposite":"A25","behind":null,"left":"A03","right":"A05","row_no":1,"facing":"面上排（暱稱寫在下方）","_row":100},{"id":"A05","area":"A","num":5,"cell":"I100","color":"#FF9900","name":"","big":false,"partner":null,"opposite":"A24","behind":null,"left":"A04","right":"A06","row_no":1,"facing":"面上排（暱稱寫在下方）","_row":100},{"id":"A06","area":"A","num":6,"cell":"J100","color":"#FF9900","name":"","big":false,"partner":null,"opposite":"A23","behind":null,"left":"A05","right":"A07","row_no":1,"facing":"面上排（暱稱寫在下方）","_row":100},{"id":"A07","area":"A","num":7,"cell":"K100","color":"#FF9900","name":"","big":false,"partner":null,"opposite":"A22","behind":null,"left":"A06","right":"A08","row_no":1,"facing":"面上排（暱稱寫在下方）","_row":100},{"id":"A08","area":"A","num":8,"cell":"L100","color":"#FF9900","name":"","big":false,"partner":null,"opposite":"A21","behind":null,"left":"A07","right":"A09","row_no":1,"facing":"面上排（暱稱寫在下方）","_row":100},{"id":"A09","area":"A","num":9,"cell":"M100","color":"#BF9000","name":"","big":false,"partner":null,"opposite":"A20","behind":null,"left":"A08","right":"A10","row_no":1,"facing":"面上排（暱稱寫在下方）","_row":100},{"id":"A10","area":"A","num":10,"cell":"N100","color":"#BF9000","name":"","big":false,"partner":null,"opposite":"A19","behind":null,"left":"A09","right":"A11","row_no":1,"facing":"面上排（暱稱寫在下方）","_row":100},{"id":"A11","area":"A","num":11,"cell":"O100","color":"#BF9000","name":"","big":false,"partner":null,"opposite":"A18","behind":null,"left":"A10","right":"A12","row_no":1,"facing":"面上排（暱稱寫在下方）","_row":100},{"id":"A12","area":"A","num":12,"cell":"P100","color":"#00FF00","name":"炎武風","big":false,"partner":null,"opposite":"A17","behind":null,"left":"A11","right":null,"row_no":1,"facing":"面上排（暱稱寫在下方）","_row":100},{"id":"A17","area":"A","num":17,"cell":"P103","color":"#BF9000","name":"","big":false,"partner":null,"opposite":"A12","behind":"A40","left":"A18","right":null,"row_no":2,"facing":"面下排（暱稱寫在上方）","_row":103},{"id":"A18","area":"A","num":18,"cell":"O103","color":"#BF9000","name":"","big":false,"partner":null,"opposite":"A11","behind":"A39","left":"A19","right":"A17","row_no":2,"facing":"面下排（暱稱寫在上方）","_row":103},{"id":"A19","area":"A","num":19,"cell":"N103","color":"#BF9000","name":"","big":false,"partner":null,"opposite":"A10","behind":"A38","left":"A20","right":"A18","row_no":2,"facing":"面下排（暱稱寫在上方）","_row":103},{"id":"A20","area":"A","num":20,"cell":"M103","color":"#BF9000","name":"","big":false,"partner":null,"opposite":"A09","behind":"A37","left":"A21","right":"A19","row_no":2,"facing":"面下排（暱稱寫在上方）","_row":103},{"id":"A21","area":"A","num":21,"cell":"L103","color":"#FF9900","name":"深夜的大和","big":true,"partner":"A22","opposite":"A08","behind":"A36","left":"A22","right":"A20","row_no":2,"facing":"面下排（暱稱寫在上方）","_row":103},{"id":"A22","area":"A","num":22,"cell":"K103","color":"#FF9900","name":"深夜的大和","big":true,"partner":"A21","opposite":"A07","behind":"A35","left":"A23","right":"A21","row_no":2,"facing":"面下排（暱稱寫在上方）","_row":103},{"id":"A23","area":"A","num":23,"cell":"J103","color":"#FF9900","name":"奶油","big":true,"partner":"A24","opposite":"A06","behind":"A34","left":"A24","right":"A22","row_no":2,"facing":"面下排（暱稱寫在上方）","_row":103},{"id":"A24","area":"A","num":24,"cell":"I103","color":"#FF9900","name":"奶油","big":true,"partner":"A23","opposite":"A05","behind":"A33","left":"A25","right":"A23","row_no":2,"facing":"面下排（暱稱寫在上方）","_row":103},{"id":"A25","area":"A","num":25,"cell":"H103","color":"#C8452F","name":"GODGUN","big":false,"partner":null,"opposite":"A04","behind":"A32","left":"A26","right":"A24","row_no":2,"facing":"面下排（暱稱寫在上方）","_row":103},{"id":"A26","area":"A","num":26,"cell":"G103","color":"#C8452F","name":"ぬぬ","big":false,"partner":null,"opposite":"A03","behind":"A31","left":"A27","right":"A25","row_no":2,"facing":"面下排（暱稱寫在上方）","_row":103},{"id":"A27","area":"A","num":27,"cell":"F103","color":"#C8452F","name":"ゆきれー","big":false,"partner":null,"opposite":"A02","behind":"A30","left":"A28","right":"A26","row_no":2,"facing":"面下排（暱稱寫在上方）","_row":103},{"id":"A28","area":"A","num":28,"cell":"E103","color":"#C8452F","name":"mothuBG","big":false,"partner":null,"opposite":"A01","behind":"A29","left":null,"right":"A27","row_no":2,"facing":"面下排（暱稱寫在上方）","_row":103},{"id":"A29","area":"A","num":29,"cell":"E104","color":"#C8452F","name":"外置大腦","big":true,"partner":"A30","opposite":"A52","behind":"A28","left":null,"right":"A30","row_no":3,"facing":"面上排（暱稱寫在下方）","_row":104},{"id":"A30","area":"A","num":30,"cell":"F104","color":"#C8452F","name":"外置大腦","big":true,"partner":"A29","opposite":"A51","behind":"A27","left":"A29","right":"A31","row_no":3,"facing":"面上排（暱稱寫在下方）","_row":104},{"id":"A31","area":"A","num":31,"cell":"G104","color":"#C8452F","name":"Moyan7605","big":false,"partner":null,"opposite":"A50","behind":"A26","left":"A30","right":"A32","row_no":3,"facing":"面上排（暱稱寫在下方）","_row":104},{"id":"A32","area":"A","num":32,"cell":"H104","color":"#C8452F","name":"夜神月","big":false,"partner":null,"opposite":"A49","behind":"A25","left":"A31","right":"A33","row_no":3,"facing":"面上排（暱稱寫在下方）","_row":104},{"id":"A33","area":"A","num":33,"cell":"I104","color":"#C8452F","name":"幻炎","big":false,"partner":null,"opposite":"A48","behind":"A24","left":"A32","right":"A34","row_no":3,"facing":"面上排（暱稱寫在下方）","_row":104},{"id":"A34","area":"A","num":34,"cell":"J104","color":"#C8452F","name":"白喵","big":false,"partner":null,"opposite":"A47","behind":"A23","left":"A33","right":"A35","row_no":3,"facing":"面上排（暱稱寫在下方）","_row":104},{"id":"A35","area":"A","num":35,"cell":"K104","color":"#C8452F","name":"貫穿","big":false,"partner":null,"opposite":"A46","behind":"A22","left":"A34","right":"A36","row_no":3,"facing":"面上排（暱稱寫在下方）","_row":104},{"id":"A36","area":"A","num":36,"cell":"L104","color":"#C8452F","name":"Hung","big":true,"partner":"A37","opposite":"A45","behind":"A21","left":"A35","right":"A37","row_no":3,"facing":"面上排（暱稱寫在下方）","_row":104},{"id":"A37","area":"A","num":37,"cell":"M104","color":"#C8452F","name":"Hung","big":true,"partner":"A36","opposite":"A44","behind":"A20","left":"A36","right":"A38","row_no":3,"facing":"面上排（暱稱寫在下方）","_row":104},{"id":"A38","area":"A","num":38,"cell":"N104","color":"#BF9000","name":"","big":false,"partner":null,"opposite":"A43","behind":"A19","left":"A37","right":"A39","row_no":3,"facing":"面上排（暱稱寫在下方）","_row":104},{"id":"A39","area":"A","num":39,"cell":"O104","color":"#BF9000","name":"","big":false,"partner":null,"opposite":"A42","behind":"A18","left":"A38","right":"A40","row_no":3,"facing":"面上排（暱稱寫在下方）","_row":104},{"id":"A40","area":"A","num":40,"cell":"P104","color":"#BF9000","name":"","big":false,"partner":null,"opposite":"A41","behind":"A17","left":"A39","right":null,"row_no":3,"facing":"面上排（暱稱寫在下方）","_row":104},{"id":"A41","area":"A","num":41,"cell":"P107","color":"#BF9000","name":"","big":false,"partner":null,"opposite":"A40","behind":null,"left":"A42","right":null,"row_no":4,"facing":"面下排（暱稱寫在上方）","_row":107},{"id":"A42","area":"A","num":42,"cell":"O107","color":"#BF9000","name":"","big":false,"partner":null,"opposite":"A39","behind":null,"left":"A43","right":"A41","row_no":4,"facing":"面下排（暱稱寫在上方）","_row":107},{"id":"A43","area":"A","num":43,"cell":"N107","color":"#C8452F","name":"照井信助","big":false,"partner":null,"opposite":"A38","behind":null,"left":"A44","right":"A42","row_no":4,"facing":"面下排（暱稱寫在上方）","_row":107},{"id":"A44","area":"A","num":44,"cell":"M107","color":"#C8452F","name":"瑟瑟熊(已仙逝)","big":true,"partner":"A45","opposite":"A37","behind":null,"left":"A45","right":"A43","row_no":4,"facing":"面下排（暱稱寫在上方）","_row":107},{"id":"A45","area":"A","num":45,"cell":"L107","color":"#C8452F","name":"瑟瑟熊(已仙逝)","big":true,"partner":"A44","opposite":"A36","behind":null,"left":"A46","right":"A44","row_no":4,"facing":"面下排（暱稱寫在上方）","_row":107},{"id":"A46","area":"A","num":46,"cell":"K107","color":"#C8452F","name":"嫌麻煩的苗一","big":false,"partner":null,"opposite":"A35","behind":null,"left":"A47","right":"A45","row_no":4,"facing":"面下排（暱稱寫在上方）","_row":107},{"id":"A47","area":"A","num":47,"cell":"J107","color":"#C8452F","name":"CHY","big":true,"partner":"A48","opposite":"A34","behind":null,"left":"A48","right":"A46","row_no":4,"facing":"面下排（暱稱寫在上方）","_row":107},{"id":"A48","area":"A","num":48,"cell":"I107","color":"#C8452F","name":"CHY","big":true,"partner":"A47","opposite":"A33","behind":null,"left":"A49","right":"A47","row_no":4,"facing":"面下排（暱稱寫在上方）","_row":107},{"id":"A49","area":"A","num":49,"cell":"H107","color":"#C8452F","name":"paul1210","big":true,"partner":"A50","opposite":"A32","behind":null,"left":"A50","right":"A48","row_no":4,"facing":"面下排（暱稱寫在上方）","_row":107},{"id":"A50","area":"A","num":50,"cell":"G107","color":"#C8452F","name":"paul1210","big":true,"partner":"A49","opposite":"A31","behind":null,"left":"A51","right":"A49","row_no":4,"facing":"面下排（暱稱寫在上方）","_row":107},{"id":"A51","area":"A","num":51,"cell":"F107","color":"#C8452F","name":"佐藤慎","big":true,"partner":"A52","opposite":"A30","behind":null,"left":"A52","right":"A50","row_no":4,"facing":"面下排（暱稱寫在上方）","_row":107},{"id":"A52","area":"A","num":52,"cell":"E107","color":"#C8452F","name":"佐藤慎","big":true,"partner":"A51","opposite":"A29","behind":null,"left":null,"right":"A51","row_no":4,"facing":"面下排（暱稱寫在上方）","_row":107}],"warnings":[]};
+
+let DATA = null, BY_ID = {}, ROW_OF = {}, BY_ZONE = {};
+const $q = document.getElementById("q"), $out = document.getElementById("out"),
+      $st = document.getElementById("status"), $notice = document.getElementById("notice");
+
+const norm = s => (s || "").normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+// 座位編號一律 1 英文 + 4 數字，不足補 0（打 a24、A024、A0024 都找得到 A0024）
+const padId = id => { const m = /^\s*([A-Za-z])\s*0*(\d{1,4})\s*$/.exec(id || "");
+  return m ? m[1].toUpperCase() + String(+m[2]).padStart(4, "0") : id; };
+const seatIdOf = q => { const m = norm(q).match(/^([a-z])0*(\d{1,4})$/); if (!m) return null;
+  return m[1].toUpperCase() + String(+m[2]).padStart(4, "0"); };
+
+// 舊版 seats.json（A01 這種）可能還躺在 localStorage 快取裡，載入時一律補成 4 碼
+function padAllIds(d){
+  const one = v => Array.isArray(v) ? v.map(padId) : (v ? padId(v) : v);
+  d.seats.forEach(s => {
+    s.id = padId(s.id);
+    ["opposite", "behind", "left", "right"].forEach(k => { s[k] = s[k] ? padId(s[k]) : s[k]; });
+    s.partner = one(s.partner);
+  });
+  (d.rows || []).forEach(r => { r.seats = r.seats.map(padId); });
+  return d;
+}
+
+function useData(d, note){
+  DATA = d = padAllIds(d); BY_ID = {}; ROW_OF = {}; BY_ZONE = {};
+  d.seats.forEach(s => { BY_ID[s.id] = s; s._n = norm(s.name); });
+  d.rows.forEach(r => r.seats.forEach(id => ROW_OF[id] = r));
+  (d.zones || []).forEach(z => { BY_ZONE[z.no] = z; z._n = norm(`${z.label}${z.name}空白領域${z.no}`); });
+  $st.textContent = `${d.occupied} 位玩家已登記，資料更新於 ${d.generated_at}` + (note ? `（${note}）` : "");
+  $q.disabled = false;
+  $mapToggle.disabled = false;
+  if (MAP.built){ MAP.built = false; MAP.cells = {}; buildMap(); }  // 換資料後重畫
+  const q = new URLSearchParams(location.search).get("q");
+  if (q){ $q.value = q; run(q, false); }
+}
+
+async function load(){
+  try{
+    const r = await fetch("seats.json", {cache:"no-cache"});
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json();
+    try{ localStorage.setItem(CACHE_KEY, JSON.stringify(d)); }catch(e){}
+    useData(d);
+  }catch(e){
+    let cached = null;
+    try{ cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null"); }catch(_){}
+    if (cached){
+      $notice.innerHTML = `<div class="banner">目前連不上網路，顯示的是上次下載的座位資料。</div>`;
+      useData(cached, "目前連不上網路，顯示上次下載的資料"); return;
+    }
+    // 直接用檔案總管點開 index.html 時，瀏覽器不准網頁讀同資料夾的 seats.json，
+    // 只會退到範例資料（只有 A 區），所以要講清楚是怎麼回事、怎麼解決
+    const isFile = location.protocol !== "http:" && location.protocol !== "https:";
+    $notice.innerHTML = `<div class="banner">` + (isFile
+      ? `<b>現在顯示的是範例資料，只有 A 區一小塊。</b><br>
+         瀏覽器不允許「直接點開的網頁」讀取同資料夾的 <code>seats.json</code>。
+         要看完整的 A／B／C 三區與空白領域，請在這個資料夾起一個本機伺服器：<br>
+         <code>python -m http.server 8000</code><br>再開 <code>http://localhost:8000</code>。`
+      : `<b>讀不到 seats.json，現在顯示的是範例資料，只有 A 區一小塊。</b><br>
+         請確認 <code>seats.json</code> 和 <code>index.html</code> 放在一起，
+         或重跑一次 <code>python build_seats.py --sheet-id …</code>。`) + `</div>`;
+    useData(DEMO, "範例資料");
+  }
+}
+
+function run(q, push = true){
+  if (push){
+    const u = new URL(location); q ? u.searchParams.set("q", q) : u.searchParams.delete("q");
+    history.replaceState(null, "", u);
+  }
+  if (!DATA) return;
+  const nq = norm(q);
+  if (!nq){ $out.innerHTML = ""; return; }
+  const sid = seatIdOf(q);
+  if (sid && BY_ID[sid]) return showSeat(sid);
+  // 暱稱搜尋：大桌兩個座位是同一人，只列一次
+  const seen = new Set(), hits = [];
+  for (const s of DATA.seats){
+    if (!s._n || !s._n.includes(nq)) continue;
+    const key = s.name + "|" + (s.big ? [s.id, s.partner].flat().sort().join() : s.id);
+    if (seen.has(key)) continue; seen.add(key); hits.push(s);
+  }
+  hits.sort((a, b) => (a._n === nq ? -1 : 0) - (b._n === nq ? -1 : 0) || a._n.length - b._n.length);
+  // 空白領域是營區，沒有座位編號，用團名或「空白領域3」找得到
+  const zhits = (DATA.zones || []).filter(z => z._n.includes(nq));
+  if (!hits.length && zhits.length === 1) return showZone(zhits[0].no);
+  if (hits.length === 1 && !zhits.length) return showSeat(hits[0].id);
+  if (!hits.length && !zhits.length){
+    $out.innerHTML = `<p class="empty-state">找不到「${esc(q)}」。試試暱稱的一部分、座位編號（例如 A24），或空白領域的團名。</p>`;
+    return;
+  }
+  $out.innerHTML = `<ul class="list">${zhits.map(z => `
+    <li><button data-zone="${z.no}"><span class="sid zn">營區</span><span class="n">${z.label}　${esc(z.name)}</span></button></li>`).join("")}
+    ${hits.slice(0, 40).map(s => `
+    <li><button data-id="${s.id}"><span class="sid">${s.id}${s.big ? "+" : ""}</span><span class="n">${esc(s.name)}</span></button></li>`).join("")}</ul>
+    ${hits.length > 40 ? `<p class="empty-state">還有 ${hits.length - 40} 筆，請多打幾個字。</p>` : ""}`;
+}
+
+// 空白領域：只有營區名稱，沒有座位、也沒有對面背後
+function showZone(no){
+  const z = BY_ZONE[no]; if (!z) return;
+  $out.innerHTML = `
+  <article class="ticket" aria-label="${z.label} 資訊">
+    <div class="stub zone"><div class="id">${String(z.no).padStart(2, "0")}</div><div class="sub">空白領域</div></div>
+    <div class="info">
+      <p class="name">${esc(z.name)}</p>
+      <div class="tags"><span class="tag">營區，原表沒有給座位編號</span></div>
+      <a class="src" href="${SHEET_URL}&range=${z.cell}" target="_blank" rel="noopener">在原座位表中查看</a>
+    </div>
+  </article>`;
+  markMap(null, no);
+}
+
+function who(id){
+  if (!id) return null;
+  const s = BY_ID[id]; if (!s) return null;
+  return `<button data-id="${id}">${id}</button>　${s.name ? esc(s.name) : "<span style='color:var(--muted)'>未登記</span>"}`;
+}
+
+function showSeat(id){
+  const s = BY_ID[id];
+  const partners = [s.partner].flat().filter(Boolean);
+  const neighbours = [s.left, s.right].filter(x => x && !partners.includes(x));
+  const rows = [
+    ["同桌", partners.length ? partners.join("、") + "（大桌）" : null],
+    ["對面", who(s.opposite)],
+    ["隔壁", neighbours.map(who).filter(Boolean).join("<br>") || null],
+    ["背後", who(s.behind)],
+  ].filter(r => r[1]);
+  $out.innerHTML = `
+  <article class="ticket" aria-label="${id} 座位資訊">
+    <div class="stub"><div class="id">${id}</div><div class="sub">${s.area} 區第 ${s.row_no} 排</div></div>
+    <div class="info">
+      <p class="name ${s.name ? "" : "empty"}">${s.name ? esc(s.name) : "這個位置還沒有人登記"}</p>
+      <div class="tags">
+        ${s.big ? `<span class="tag">大桌 ${[id, ...partners].sort().join("+")}</span>` : ""}
+        <span class="tag">${s.facing}</span>
+      </div>
+      <ul class="near">${rows.map(([k, v]) => `<li><b>${k}</b><span>${v}</span></li>`).join("")}</ul>
+      <a class="src" href="${SHEET_URL}&range=${s.cell}" target="_blank" rel="noopener">在原座位表中查看</a>
+    </div>
+    ${tableMap(s)}
+  </article>`;
+  const hit = $out.querySelector(".cell.hit");
+  if (hit) hit.scrollIntoView({block:"nearest", inline:"center"});
+  markMap(id);
+}
+
+// 畫出這個座位所在的整張桌子（兩排面對面），版面照原表
+function tableMap(s){
+  const mine = ROW_OF[s.id]; if (!mine) return "";
+  const other = s.opposite ? ROW_OF[s.opposite] : null;
+  const pair = [mine, other].filter(Boolean).sort((a, b) => a.r - b.r);
+  const cols = Math.max(...pair.map(r => r.seats.length));
+  const hitSet = new Set([s.id, ...[s.partner].flat().filter(Boolean)]);
+  const nameLine = row => {
+    let html = "", i = 0;
+    while (i < row.seats.length){
+      const x = BY_ID[row.seats[i]]; let span = 1;
+      while (x.name && i + span < row.seats.length && BY_ID[row.seats[i + span]].name === x.name &&
+             [x.partner].flat().includes(row.seats[i + span])) span++;
+      const hit = row.seats.slice(i, i + span).some(id => hitSet.has(id));
+      html += `<div class="nm ${hit ? "hit" : ""}" style="grid-column:span ${span}" title="${esc(x.name)}">${esc(x.name) || "&nbsp;"}</div>`;
+      i += span;
+    }
+    return html;
+  };
+  const idLine = row => row.seats.map(id => {
+    const c = BY_ID[id].color;
+    return `<div class="cell ${hitSet.has(id) ? "hit" : ""}" ${c ? `style="background:${c}"` : ""}>${id}</div>`;
+  }).join("");
+  const body = pair.map((row, k) => {
+    const lines = row.side > 0 ? idLine(row) + nameLine(row) : nameLine(row) + idLine(row);
+    return (k ? `<div class="aisle" style="grid-column:1/-1"></div>` : "") + lines;
+  }).join("");
+  return `<div class="table-map"><h3>整張桌子（左右滑動）</h3>
+    <div class="scroller"><div class="grid" style="grid-template-columns:repeat(${cols},64px)">${body}</div></div></div>`;
+}
+
+/* ── 全區地圖 ───────────────────────────────────────────────────────────
+   相對位置圖：格線直接沿用原表的列／欄，所以障礙物缺口、桌子之間的走道
+   都會照原表的樣子留白，但它不是按實際場地比例畫的，也沒有方位。
+   圖上只顯示「有人／空位」與原表的分區底色，暱稱要點下去才出現。        */
+const $map = document.getElementById("map"), $mapGrid = document.getElementById("mapGrid"),
+      $mapScroll = document.getElementById("mapScroll"), $mapToggle = document.getElementById("mapToggle");
+const MAP = { built:false, cells:{}, zones:{}, cols:0, zoom:"fit", cur:null, curZone:null };
+const ZOOM = { fit:0, mid:26, big:44 };   // 編號變成 4 碼，格子要夠寬才塞得下 A0252
+
+// 座位在原表的位置就藏在 cell 裡（例如 CW9 → 第 9 列、第 101 欄）
+const rowOfCell = c => +c.replace(/^[A-Z]+/, "");
+const colOfCell = c => [...c.replace(/\d+$/, "")].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
+
+const tone = hex => {                       // 底色 → 實色／淡色／文字色
+  const n = parseInt((hex || "#9E8A66").slice(1), 16);
+  const R = n >> 16 & 255, G = n >> 8 & 255, B = n & 255;
+  return { c: hex || "#9E8A66", c0: `rgba(${R},${G},${B},.2)`,
+           t: (R * 299 + G * 587 + B * 114) / 1000 > 140 ? "#2B1B10" : "#FFF6E6" };
+};
+
+function buildMap(){
+  const pts = DATA.seats.map(s => ({ s, r: rowOfCell(s.cell), c: colOfCell(s.cell) }));
+  const zones = DATA.zones || [];
+  const seatRows = new Set(pts.map(p => p.r));
+  // 範圍要含空白領域：它們在座位格線的上下方、有的還在左邊
+  const r0 = Math.min(...pts.map(p => p.r), ...zones.map(z => z.r));
+  const r1 = Math.max(...pts.map(p => p.r), ...zones.map(z => z.r1));
+  const c0 = Math.min(...pts.map(p => p.c), ...zones.map(z => z.c0));
+  const c1 = Math.max(...pts.map(p => p.c), ...zones.map(z => z.c1));
+  MAP.cols = c1 - c0 + 1;
+
+  // 有座位的列給整格高度，其餘（暱稱列、走道）只留細縫，缺口就照原表留白
+  const rowSpec = [];
+  for (let r = r0; r <= r1; r++) rowSpec.push(seatRows.has(r) ? "var(--cell)" : "var(--gap)");
+
+  const band = {};
+  MAP.first = {};
+  for (const { s, c } of pts){
+    const b = band[s.area] || (band[s.area] = [c, c]);
+    if (c < b[0] || !MAP.first[s.area]) MAP.first[s.area] = s.id;   // 該區最左邊那一格，給「跳到區域」用
+    b[0] = Math.min(b[0], c); b[1] = Math.max(b[1], c);
+  }
+  const areas = Object.keys(band).sort();
+  let html = areas.map(a => {
+    const [bc0, bc1] = band[a];
+    return `<div class="lbl" style="grid-row:1;grid-column:${bc0 - c0 + 1}/span ${bc1 - bc0 + 1}">${a} 區</div>`;
+  }).join("");
+
+  html += pts.map(({ s, r, c }) => {
+    const k = tone(s.color), label = `${s.id}　${s.name ? "已登記" : "空位"}`;
+    return `<div class="s${s.name ? " on" : ""}" role="button" tabindex="-1" data-id="${s.id}"
+      title="${label}" aria-label="${label}" style="grid-row:${r - r0 + 2};grid-column:${c - c0 + 1};
+      --c:${k.c};--c0:${k.c0};--t:${k.t}"><i>${s.id[0]}</i>${s.id.slice(1)}</div>`;
+  }).join("");
+
+  html += zones.map(z => {
+    const k = tone(z.color), label = `${z.label}　${z.name}`;
+    return `<div class="z" role="button" tabindex="-1" data-zone="${z.no}"
+      title="${label}" aria-label="${label}"
+      style="grid-row:${z.r - r0 + 2}/span ${z.r1 - z.r + 1};grid-column:${z.c0 - c0 + 1}/span ${z.c1 - z.c0 + 1};
+      --c:${k.c};--c0:${k.c0};--t:${k.t}"><b>${String(z.no).padStart(2, "0")}</b><em>${esc(z.name)}</em></div>`;
+  }).join("");
+
+  $mapGrid.style.gridTemplateColumns = `repeat(${MAP.cols},var(--cell))`;
+  $mapGrid.style.gridTemplateRows = "auto " + rowSpec.join(" ");
+  $mapGrid.innerHTML = html;
+  MAP.cells = {}; MAP.zones = {};
+  $mapGrid.querySelectorAll(".s").forEach(el => { MAP.cells[el.dataset.id] = el; });
+  $mapGrid.querySelectorAll(".z").forEach(el => { MAP.zones[el.dataset.zone] = el; });
+  document.getElementById("mapJump").innerHTML =
+    areas.map(a => `<button type="button" data-jump="${a}">${a} 區</button>`).join("") +
+    (zones.length ? `<button type="button" data-jump="Z">空白領域</button>` : "");
+  document.getElementById("mapLegend").innerHTML =
+    `共 <b>${DATA.total}</b> 席、<b>${DATA.occupied}</b> 席已登記（深色＝有人、淺色＝空位，底色沿用原表）
+     ${zones.length ? `；<b>${zones.length}</b> 個空白領域營區（虛線框）` : ""}。相對位置圖，非實際比例。`;
+  MAP.built = true;
+  setZoom("fit");
+  if (MAP.cur || MAP.curZone) markMap(MAP.cur, MAP.curZone);   // 打開地圖前就查過的，補上標記
+}
+
+function setZoom(z){
+  let cell = ZOOM[z];
+  if (z === "fit"){  // 整區塞進畫面寬度（扣掉 .mapscroll 左右各 12px 的 padding；全區沒有格線）
+    cell = Math.max(3, Math.floor(($mapScroll.clientWidth - 24) / MAP.cols));
+  }
+  // 地圖變高會讓 .mapscroll 跟著變高，ResizeObserver 會再叫一次；沒變就不用重做
+  if (z === MAP.zoom && $mapGrid.style.getPropertyValue("--cell") === cell + "px"
+      && $mapGrid.className === "mapgrid z-" + z) return;
+  // 換縮放前先記住畫面中心在整張圖的哪個比例，放大後才不會被丟回最左上角
+  const was = { x: ($mapScroll.scrollLeft + $mapScroll.clientWidth / 2) / ($mapGrid.offsetWidth || 1),
+                y: ($mapScroll.scrollTop + $mapScroll.clientHeight / 2) / ($mapGrid.offsetHeight || 1) };
+  MAP.zoom = z;
+  $mapGrid.style.setProperty("--cell", cell + "px");
+  $mapGrid.style.setProperty("--gap", Math.max(2, Math.round(cell * .36)) + "px");
+  $mapGrid.className = "mapgrid z-" + z;
+  $map.querySelectorAll(".zoom button").forEach(b => b.classList.toggle("on", b.dataset.zoom === z));
+  if ($map.hidden) return;
+  const sel = $mapGrid.querySelector(".sel");
+  if (sel) return centerCell(sel);                   // 有選取的就對準它
+  $mapScroll.scrollLeft = was.x * $mapGrid.offsetWidth - $mapScroll.clientWidth / 2;
+  $mapScroll.scrollTop = was.y * $mapGrid.offsetHeight - $mapScroll.clientHeight / 2;
+}
+
+// 跳到某一區（靠左對齊，看得到整區的開頭）
+function jumpTo(key){
+  if (!MAP.built) return;
+  const el = key === "Z" ? MAP.zones[Object.keys(MAP.zones)[0]] : MAP.cells[MAP.first[key]];
+  if (!el) return;
+  if (MAP.zoom === "fit") setZoom("mid");            // 全區時整張都看得到，跳之前先放大
+  const a = el.getBoundingClientRect(), b = $mapScroll.getBoundingClientRect();
+  $mapScroll.scrollLeft += (a.left - b.left) - 10;
+  $mapScroll.scrollTop += (a.top - b.top) - 10;
+}
+
+function centerCell(el){
+  const a = el.getBoundingClientRect(), b = $mapScroll.getBoundingClientRect();
+  $mapScroll.scrollLeft += (a.left + a.width / 2) - (b.left + b.width / 2);
+  $mapScroll.scrollTop += (a.top + a.height / 2) - (b.top + b.height / 2);
+}
+
+// 把選到的座位和它的同桌／對面／背後／隔壁標出來（或標出選到的空白領域）
+function markMap(id, zoneNo){
+  MAP.cur = id; MAP.curZone = zoneNo ?? null;
+  if (!MAP.built) return;
+  $mapGrid.querySelectorAll(".sel,.rel").forEach(el => el.classList.remove("sel", "rel"));
+  let el = null;
+  if (zoneNo != null){
+    el = MAP.zones[zoneNo];
+  } else {
+    const s = BY_ID[id]; if (!s) return;
+    [s.opposite, s.behind, s.left, s.right, ...[s.partner].flat()]
+      .filter(Boolean).forEach(x => MAP.cells[x] && MAP.cells[x].classList.add("rel"));
+    el = MAP.cells[id];
+  }
+  if (!el) return;
+  el.classList.add("sel");
+  if (!$map.hidden) centerCell(el);
+}
+
+$mapToggle.addEventListener("click", () => {
+  const open = $map.hidden;
+  $map.hidden = !open;
+  $mapToggle.textContent = open ? "關閉地圖" : "看全區地圖";
+  $mapToggle.setAttribute("aria-expanded", String(open));
+  if (!open) return;
+  if (!MAP.built) buildMap(); else setZoom(MAP.zoom);
+});
+
+$map.addEventListener("click", e => {
+  const z = e.target.closest("button[data-zoom]");
+  if (z) return setZoom(z.dataset.zoom);
+  const j = e.target.closest("button[data-jump]");
+  if (j) return jumpTo(j.dataset.jump);
+  const cell = e.target.closest(".s[data-id],.z[data-zone]");
+  if (!cell) return;
+  if (MAP.zoom === "fit"){ setZoom("big"); centerCell(cell); return; }  // 總覽時先放大，避免誤觸
+  const q = cell.dataset.id || BY_ZONE[cell.dataset.zone].name;
+  $q.value = q;
+  run(q);
+  $out.scrollIntoView({ block:"nearest" });
+});
+
+// 轉向、視窗變寬都要重算「全區」的格子大小
+if (window.ResizeObserver){
+  new ResizeObserver(() => { if (MAP.built && !$map.hidden && MAP.zoom === "fit") setZoom("fit"); })
+    .observe($mapScroll);
+} else {
+  window.addEventListener("resize", () => {
+    if (MAP.built && !$map.hidden && MAP.zoom === "fit") setZoom("fit");
+  });
+}
+
+let t;
+$q.addEventListener("input", e => { clearTimeout(t); t = setTimeout(() => run(e.target.value), 120); });
+$out.addEventListener("click", e => {
+  const b = e.target.closest("button[data-id],button[data-zone]"); if (!b) return;
+  const q = b.dataset.id || BY_ZONE[b.dataset.zone].name;
+  $q.value = q; run(q); window.scrollTo({top:0});
+});
+$q.disabled = true;
+load();
+</script>
+</body>
+</html>

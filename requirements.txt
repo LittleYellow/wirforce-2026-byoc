@@ -1,0 +1,2 @@
+# 解析 xlsx 用（只有這一個相依套件）。版本對齊 .github/workflows/update-seats.yml
+openpyxl==3.1.5

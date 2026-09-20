@@ -1,0 +1,11 @@
+# 本機虛擬環境
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# 由 build_seats.py 產生，部署時由 workflow 重新抓，不用進版控
+seats.json
+
+# 手動下載的座位表
+*.xlsx
