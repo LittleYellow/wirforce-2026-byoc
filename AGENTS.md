@@ -51,9 +51,24 @@ python build_seats.py --sheet-id 13n2z8QgxQL-xWLR2K4zy75Xw1aeu6Grf-DuGvZBckXY
 
 ## 部署
 
-GitHub Pages，由 `.github/workflows/update-seats.yml` 每 10 分鐘重抓座位表並部署；repo 需設定 Actions variable `SHEET_ID`，Pages source 設為 GitHub Actions。原表大改版時手動觸發 workflow 立即更新。
+**現況：Zeabur + `server.py`（2026-09-21 起，Yellow 指定）。**
+`server.py` 是一個 stdlib-only 的小服務：背景每 `REFRESH_MINUTES`（預設 30）分鐘重抓座位表，
+解析結果只放在記憶體，同時送出 `index.html` 與 `seats.json`。`Dockerfile` 給 Zeabur 用。
+環境變數：`SHEET_ID`（必填）、`REFRESH_MINUTES`、`PORT`（Zeabur 自帶）。
 
-更換部署平台（例如 Zeabur）或改成後端服務架構前，先與 Yellow 確認。
+設計上的三個重點，改動前先想清楚：
+- **抓失敗要沿用上一份成功的資料**，只有從頭到尾沒抓成功過才回 503。現場網路不穩時這是救命的。
+- 失敗後每分鐘重試，成功才回到 30 分鐘，不要讓一次失敗等滿半小時。
+- 不寫磁碟。容器檔案系統可能唯讀，而且資料本來就不需要落地。
+
+`seats.json` 會 gzip 後送出（254 KB → 28 KB），並帶 ETag；頁面用 `cache:"no-cache"` 取，
+所以沒變動時是 304 空回應。現場網路壅塞，這兩件事不要拿掉。
+
+GitHub Pages 那套（`.github/workflows/update-seats.yml`）**目前停用**但留著當備案，
+要切回去就 `gh workflow enable "更新座位資料"` 並把 Pages source 設成 GitHub Actions。
+repo 已設好 Actions variable `SHEET_ID`。
+
+再換平台或改架構前，先與 Yellow 確認。
 
 ## 已知的原表問題（要找維護者，不是程式的 bug）
 

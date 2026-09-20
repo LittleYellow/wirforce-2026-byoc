@@ -96,14 +96,43 @@ python build_seats.py 座位表.xlsx
 > `seats.json`，會退回內建範例資料（只有 A 區 48 格、沒有空白領域）。一定要走上面的
 > `http://localhost:8000`。頁面偵測到這個情況時會直接把原因寫在畫面上。
 
-## 部署到 GitHub Pages（自動更新）
-1. 建一個 public repo，放入 `index.html`、`build_seats.py`、`requirements.txt`，
-   並把 `update-seats.yml` 放到 **`.github/workflows/update-seats.yml`**（目前它在專案根目錄，要自己移過去）
-2. Settings → Pages → Source 選 **GitHub Actions**
-3. Settings → Secrets and variables → Actions → Variables 新增 `SHEET_ID`
-4. Actions 分頁手動跑一次「更新座位資料」，之後每 10 分鐘自動更新
+## 部署（Zeabur）
 
-`seats.json` 由 workflow 每次重新產生後直接部署，**不用 commit 進 repo**（`.gitignore` 已經排除）。
+用 `server.py` 跑一個小服務：背景**每 30 分鐘**重抓一次座位表解析成 `seats.json` 放在記憶體，
+同時把 `index.html` 和 `seats.json` 送出去。`Dockerfile` 已經寫好，Zeabur 直接吃。
+
+1. Zeabur 新增 Service → Git → 選這個 repo（會自動偵測到 `Dockerfile`）
+2. 環境變數只要一個：
+
+   | 變數 | 值 |
+   |---|---|
+   | `SHEET_ID` | `13n2z8QgxQL-xWLR2K4zy75Xw1aeu6Grf-DuGvZBckXY` |
+   | `REFRESH_MINUTES` | `30`（可省略，預設就是 30） |
+
+   `PORT` 由 Zeabur 自己帶入，不用設。
+3. 綁網域，開 `/` 就是查詢頁
+
+健康檢查可以指到 `/healthz`，回傳目前座位數、上次抓取時間、失敗次數與解析警告：
+
+```json
+{"ok":true,"seats":1011,"occupied":222,"zones":14,"age_seconds":14,"failures":0,"warnings":[...]}
+```
+
+**抓取失敗時會繼續送上一份成功的資料**，不會讓現場的人看到空頁面；失敗後改成每分鐘重試，
+成功才回到 30 分鐘。`seats.json` 只存在記憶體，不寫磁碟，所以容器檔案系統唯讀也沒問題。
+
+本機要跑這個服務：
+
+```powershell
+$env:SHEET_ID = "13n2z8QgxQL-xWLR2K4zy75Xw1aeu6Grf-DuGvZBckXY"
+python server.py
+```
+```bash
+SHEET_ID=13n2z8QgxQL-xWLR2K4zy75Xw1aeu6Grf-DuGvZBckXY python server.py
+```
+
+> `.github/workflows/update-seats.yml`（GitHub Pages 那套）**目前是停用狀態**，先留著當備案。
+> 要切回去就 `gh workflow enable "更新座位資料"`，並到 Settings → Pages 把 Source 設成 GitHub Actions。
 
 ## 頁面功能
 - 暱稱／座位編號查詢，結果附同桌、對面、背後、隔壁（打 a24、A024、A0024 都找得到 A0024）
