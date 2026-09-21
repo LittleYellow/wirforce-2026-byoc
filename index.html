@@ -382,30 +382,47 @@ function tableMap(s){
   const mine = ROW_OF[s.id]; if (!mine) return "";
   const other = s.opposite ? ROW_OF[s.opposite] : null;
   const pair = [mine, other].filter(Boolean).sort((a, b) => a.r - b.r);
-  const cols = Math.max(...pair.map(r => r.seats.length));
   const hitSet = new Set([s.id, ...[s.partner].flat().filter(Boolean)]);
-  const nameLine = row => {
+
+  // 兩排的座位數常常不一樣（障礙物把其中一排截短），所以一律用原表的欄位定位：
+  //   各自從第 1 格排起 → 對面會對到錯的人
+  //   讓格子自動流動     → 短的那排會接在上一行後面然後換行（C0056 就是這樣歪掉的）
+  const colOf = id => colOfCell(BY_ID[id].cell);
+  const cols = pair.flatMap(r => r.seats.map(colOf));
+  const c0 = Math.min(...cols), width = Math.max(...cols) - c0 + 1;
+  const at = (id, gr, span) =>
+    `grid-row:${gr};grid-column:${colOf(id) - c0 + 1}${span > 1 ? `/span ${span}` : ""}`;
+
+  const idLine = (row, gr) => row.seats.map(id => {
+    const c = BY_ID[id].color;
+    return `<div class="cell ${hitSet.has(id) ? "hit" : ""}"
+      style="${at(id, gr, 1)}${c ? `;background:${c}` : ""}">${id}</div>`;
+  }).join("");
+
+  const nameLine = (row, gr) => {
     let html = "", i = 0;
     while (i < row.seats.length){
       const x = BY_ID[row.seats[i]]; let span = 1;
       while (x.name && i + span < row.seats.length && BY_ID[row.seats[i + span]].name === x.name &&
              [x.partner].flat().includes(row.seats[i + span])) span++;
       const hit = row.seats.slice(i, i + span).some(id => hitSet.has(id));
-      html += `<div class="nm ${hit ? "hit" : ""}" style="grid-column:span ${span}" title="${esc(x.name)}">${esc(x.name) || "&nbsp;"}</div>`;
+      html += `<div class="nm ${hit ? "hit" : ""}" style="${at(row.seats[i], gr, span)}"
+        title="${esc(x.name)}">${esc(x.name) || "&nbsp;"}</div>`;
       i += span;
     }
     return html;
   };
-  const idLine = row => row.seats.map(id => {
-    const c = BY_ID[id].color;
-    return `<div class="cell ${hitSet.has(id) ? "hit" : ""}" ${c ? `style="background:${c}"` : ""}>${id}</div>`;
-  }).join("");
-  const body = pair.map((row, k) => {
-    const lines = row.side > 0 ? idLine(row) + nameLine(row) : nameLine(row) + idLine(row);
-    return (k ? `<div class="aisle" style="grid-column:1/-1"></div>` : "") + lines;
-  }).join("");
+
+  let body = "", gr = 1;
+  pair.forEach((row, k) => {
+    if (k) body += `<div class="aisle" style="grid-row:${gr++};grid-column:1/-1"></div>`;
+    // 面上排：編號在上、暱稱在下；面下排相反，兩排的暱稱都朝著桌子中間
+    body += row.side > 0 ? idLine(row, gr) + nameLine(row, gr + 1)
+                         : nameLine(row, gr) + idLine(row, gr + 1);
+    gr += 2;
+  });
   return `<div class="table-map"><h3>整張桌子（左右滑動）</h3>
-    <div class="scroller"><div class="grid" style="grid-template-columns:repeat(${cols},64px)">${body}</div></div></div>`;
+    <div class="scroller"><div class="grid" style="grid-template-columns:repeat(${width},64px)">${body}</div></div></div>`;
 }
 
 /* ── 全區地圖 ───────────────────────────────────────────────────────────
