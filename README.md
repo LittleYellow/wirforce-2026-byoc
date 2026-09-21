@@ -117,13 +117,18 @@ python build_seats.py 座位表.xlsx
 
 ```json
 {"ok":true,"seats":1012,"occupied":243,"zones":14,"age_seconds":14,"failures":0,"warnings":[...],
- "data":{"path":"/data","mounted":true,"writable":true,"first_boot":"2026-09-22T09:00:00+08:00",
-         "free_mb":1024,"entries":[".first-boot"],"error":null}}
+ "data":{"path":"/data","exists":true,"writable":true,"persisted":true,"boots":7,
+         "first_boot":"2026-09-22T09:00:00+08:00","free_mb":1024,
+         "entries":[".volume-probe.json"],"error":null}}
 ```
 
-`data` 是持久硬碟的狀況。`writable` 會實際寫一個檔案再讀回來，只看目錄存不存在不夠 ——
-掛載點有可能唯讀或 owner 不對。**`first_boot` 是判斷 Volume 有沒有真的掛上的依據**：
-重新部署之後如果還是同一個時間，表示資料留住了；每次部署都變成當下時間，就是沒掛到。
+`data` 是持久硬碟的狀況：
+
+- `exists` 幾乎一定是 `true`（目錄不在的話這支程式自己會建），**不要拿它判斷有沒有掛到**
+- `writable` 是實際寫一個檔案再讀回來的結果，掛載點唯讀或 owner 不對就會是 `false`
+- **`persisted` 才是答案**：標記檔在這個行程啟動前就存在，代表資料活過了上一次重啟。
+  沒掛 Volume 的話每次部署都是全新容器，這裡會是 `false`
+- `boots` 累計啟動次數，數字一直往上加就是硬碟持續留著東西
 
 在 Zeabur 掛硬碟：服務頁 →「硬碟」→「掛載硬碟」，Volume ID 隨便取（例如 `data`），
 **掛載目錄填 `/data`**。注意掛載會把該目錄整個清空，所以絕對不要填 `/app`。

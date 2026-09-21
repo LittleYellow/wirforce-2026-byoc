@@ -36,7 +36,10 @@ RETRY_SECONDS = 60          # 抓失敗就一分鐘後再試，不用等滿 30 �
 TZ_TAIPEI = timezone(timedelta(hours=8))
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))   # Zeabur 掛上來的持久硬碟
-BOOT_MARKER = DATA_DIR / ".first-boot"
+BOOT_MARKER = DATA_DIR / ".volume-probe.json"
+BOOT_LOCK = threading.Lock()
+BOOT_COUNTED = [False]        # 這個行程有沒有算過啟動次數
+BOOT_PERSISTED = [False]
 
 
 def log(msg):
@@ -46,15 +49,18 @@ def log(msg):
 def probe_data_dir() -> dict:
     """真的去寫一個檔案，確認持久硬碟可用。
 
-    光檢查目錄存不存在不夠：掛載點有可能是唯讀的，或 owner 不是跑這支程式的使用者。
-    first_boot 是關鍵證據 —— 重新部署之後如果還是**同一個時間**，才代表 Volume
-    真的留住了東西；每次部署都變成當下時間，就表示根本沒掛到，只是寫進容器的暫存層。
+    光檢查目錄存不存在不夠，而且這支程式自己會把目錄建出來，所以 exists 幾乎一定是 True——
+    掛載點有可能是唯讀的，或 owner 不是跑這支程式的使用者，那要 writable 才看得出來。
+
+    persisted 才是「Volume 有沒有真的掛上」的答案：標記檔在這個行程啟動前就存在，
+    表示它活過了上一次重啟。沒掛 Volume 的話每次部署都是全新的容器，標記檔不會在。
+    boots 是累計啟動次數，數字一直加代表硬碟持續留著東西。
     """
-    info = {"path": str(DATA_DIR), "mounted": False, "writable": False,
-            "first_boot": None, "free_mb": None, "entries": None, "error": None}
+    info = {"path": str(DATA_DIR), "exists": False, "writable": False, "persisted": False,
+            "boots": None, "first_boot": None, "free_mb": None, "entries": None, "error": None}
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        info["mounted"] = True
+        info["exists"] = True
         probe = DATA_DIR / ".write-probe"
         stamp = datetime.now(TZ_TAIPEI).isoformat(timespec="seconds")
         probe.write_text(stamp, encoding="utf-8")
@@ -62,9 +68,25 @@ def probe_data_dir() -> dict:
             raise OSError("寫進去再讀出來對不起來")
         probe.unlink()
         info["writable"] = True
-        if not BOOT_MARKER.exists():
-            BOOT_MARKER.write_text(stamp, encoding="utf-8")
-        info["first_boot"] = BOOT_MARKER.read_text(encoding="utf-8").strip()
+
+        with BOOT_LOCK:
+            state = {}
+            if BOOT_MARKER.exists():
+                try:
+                    state = json.loads(BOOT_MARKER.read_text(encoding="utf-8"))
+                except ValueError:
+                    state = {}                       # 檔案壞了就當第一次，不要讓健康檢查掛掉
+            if not state.get("first_boot"):
+                state = {"first_boot": stamp, "boots": 0}
+            if not BOOT_COUNTED[0]:                  # 一個行程只算一次，healthz 被打幾次都一樣
+                state["boots"] = state.get("boots", 0) + 1
+                BOOT_COUNTED[0] = True
+                BOOT_PERSISTED[0] = state["first_boot"] != stamp
+                BOOT_MARKER.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+            info["first_boot"] = state["first_boot"]
+            info["boots"] = state["boots"]
+            info["persisted"] = BOOT_PERSISTED[0]
+
         info["free_mb"] = round(shutil.disk_usage(DATA_DIR).free / 1048576)
         info["entries"] = sorted(p.name for p in DATA_DIR.iterdir())
     except Exception as e:
@@ -245,8 +267,9 @@ def main():
     log(f"啟動：每 {REFRESH_MINUTES:g} 分鐘重抓一次，sheet {SHEET_ID}")
     d = probe_data_dir()
     if d["writable"]:
-        log(f"持久硬碟 {d['path']}：可寫，剩 {d['free_mb']} MB，"
-            f"第一次啟動於 {d['first_boot']}，內容 {d['entries']}")
+        kept = (f"資料留得住（第 {d['boots']} 次啟動，最早 {d['first_boot']}）"
+                if d["persisted"] else "⚠ 但這是全新的目錄，可能根本沒掛到 Volume")
+        log(f"持久硬碟 {d['path']}：可寫，剩 {d['free_mb']} MB，{kept}")
     else:
         log(f"⚠ 持久硬碟 {d['path']} 不可用（{d['error']}），"
             f"寫入類功能會失效 —— 檢查 Zeabur 的硬碟掛載設定")
