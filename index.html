@@ -181,7 +181,7 @@ footer a{color:inherit}
 
 <script>
 const SHEET_ID = "13n2z8QgxQL-xWLR2K4zy75Xw1aeu6Grf-DuGvZBckXY";
-const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit#gid=0`;
+const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit`;
 const CACHE_KEY = "wf2026-seats";
 document.getElementById("sheetLink").href = SHEET_URL;
 
@@ -296,11 +296,21 @@ function showZone(no){
     <div class="info">
       <p class="name">${esc(z.name)}</p>
       <div class="tags"><span class="tag">營區，原表沒有給座位編號</span></div>
-      <a class="src" href="${SHEET_URL}&range=${z.cell}" target="_blank" rel="noopener">在原座位表中查看</a>
+      ${srcLink(z.cell)}
     </div>
   </article>`;
   markMap(null, no);
 }
+
+// 連回原表時要指定分頁。gid 由 build_seats.py 從 htmlview 抓出來放在 DATA.gids，
+// 不能寫死 —— 被選中的工作表換了，gid 就跟著換。
+function sheetUrl(cell){
+  const gid = DATA && DATA.gids && DATA.gids[DATA.sheet];
+  if (gid == null) return SHEET_URL;
+  return `${SHEET_URL}#gid=${gid}` + (cell ? `&range=${cell}` : "");
+}
+const srcLink = cell =>
+  `<a class="src" href="${sheetUrl(cell)}" target="_blank" rel="noopener">在原座位表中查看</a>`;
 
 function who(id){
   if (!id) return null;
@@ -328,7 +338,7 @@ function showSeat(id){
         <span class="tag">${s.facing}</span>
       </div>
       <ul class="near">${rows.map(([k, v]) => `<li><b>${k}</b><span>${v}</span></li>`).join("")}</ul>
-      <a class="src" href="${SHEET_URL}&range=${s.cell}" target="_blank" rel="noopener">在原座位表中查看</a>
+      ${srcLink(s.cell)}
     </div>
     ${tableMap(s)}
   </article>`;
