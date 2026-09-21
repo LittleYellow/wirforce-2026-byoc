@@ -108,6 +108,7 @@ python build_seats.py 座位表.xlsx
    |---|---|
    | `SHEET_ID` | `13n2z8QgxQL-xWLR2K4zy75Xw1aeu6Grf-DuGvZBckXY` |
    | `REFRESH_MINUTES` | `30`（可省略，預設就是 30） |
+   | `DATA_DIR` | `/data`（可省略，預設就是 `/data`） |
 
    `PORT` 由 Zeabur 自己帶入，不用設。
 3. 綁網域，開 `/` 就是查詢頁
@@ -115,8 +116,18 @@ python build_seats.py 座位表.xlsx
 健康檢查可以指到 `/healthz`，回傳目前座位數、上次抓取時間、失敗次數與解析警告：
 
 ```json
-{"ok":true,"seats":1011,"occupied":222,"zones":14,"age_seconds":14,"failures":0,"warnings":[...]}
+{"ok":true,"seats":1012,"occupied":243,"zones":14,"age_seconds":14,"failures":0,"warnings":[...],
+ "data":{"path":"/data","mounted":true,"writable":true,"first_boot":"2026-09-22T09:00:00+08:00",
+         "free_mb":1024,"entries":[".first-boot"],"error":null}}
 ```
+
+`data` 是持久硬碟的狀況。`writable` 會實際寫一個檔案再讀回來，只看目錄存不存在不夠 ——
+掛載點有可能唯讀或 owner 不對。**`first_boot` 是判斷 Volume 有沒有真的掛上的依據**：
+重新部署之後如果還是同一個時間，表示資料留住了；每次部署都變成當下時間，就是沒掛到。
+
+在 Zeabur 掛硬碟：服務頁 →「硬碟」→「掛載硬碟」，Volume ID 隨便取（例如 `data`），
+**掛載目錄填 `/data`**。注意掛載會把該目錄整個清空，所以絕對不要填 `/app`。
+啟用 Volume 之後就沒有零停機重啟了，每次部署會完整關閉再啟動。
 
 **抓取失敗時會繼續送上一份成功的資料**，不會讓現場的人看到空頁面；失敗後改成每分鐘重試，
 成功才回到 30 分鐘。`seats.json` 只存在記憶體，不寫磁碟，所以容器檔案系統唯讀也沒問題。

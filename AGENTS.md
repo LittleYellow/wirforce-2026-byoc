@@ -56,12 +56,14 @@ python build_seats.py --sheet-id 13n2z8QgxQL-xWLR2K4zy75Xw1aeu6Grf-DuGvZBckXY
 **現況：Zeabur + `server.py`（2026-09-21 起，Yellow 指定）。**
 `server.py` 是一個 stdlib-only 的小服務：背景每 `REFRESH_MINUTES`（預設 30）分鐘重抓座位表，
 解析結果只放在記憶體，同時送出 `index.html` 與 `seats.json`。`Dockerfile` 給 Zeabur 用。
-環境變數：`SHEET_ID`（必填）、`REFRESH_MINUTES`、`PORT`（Zeabur 自帶）。
+環境變數：`SHEET_ID`（必填）、`REFRESH_MINUTES`、`DATA_DIR`（預設 `/data`）、`PORT`（Zeabur 自帶）。
 
 設計上的三個重點，改動前先想清楚：
 - **抓失敗要沿用上一份成功的資料**，只有從頭到尾沒抓成功過才回 503。現場網路不穩時這是救命的。
 - 失敗後每分鐘重試，成功才回到 30 分鐘，不要讓一次失敗等滿半小時。
-- 不寫磁碟。容器檔案系統可能唯讀，而且資料本來就不需要落地。
+- **座位資料不寫磁碟。** 容器檔案系統可能唯讀，而且它本來就不需要落地 —— 掉了重抓就有。
+  `DATA_DIR`（Zeabur 掛上來的 Volume）是留給**沒有其他來源的資料**用的，例如之後的留言板。
+  兩者不要混：座位表的真相在 Google Sheets，硬碟上的東西掉了沒地方補。
 
 `seats.json` 會 gzip 後送出（254 KB → 28 KB），並帶 ETag；頁面用 `cache:"no-cache"` 取，
 所以沒變動時是 304 空回應。現場網路壅塞，這兩件事不要拿掉。

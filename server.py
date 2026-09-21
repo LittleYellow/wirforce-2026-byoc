@@ -17,6 +17,7 @@
 import gzip
 import json
 import os
+import shutil
 import sys
 import threading
 import time
@@ -34,10 +35,41 @@ REFRESH_MINUTES = float(os.environ.get("REFRESH_MINUTES", "30"))
 RETRY_SECONDS = 60          # 抓失敗就一分鐘後再試，不用等滿 30 分鐘
 TZ_TAIPEI = timezone(timedelta(hours=8))
 ROOT = Path(__file__).resolve().parent
+DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))   # Zeabur 掛上來的持久硬碟
+BOOT_MARKER = DATA_DIR / ".first-boot"
 
 
 def log(msg):
     print(f"[{datetime.now(TZ_TAIPEI):%Y-%m-%d %H:%M:%S}] {msg}", flush=True)
+
+
+def probe_data_dir() -> dict:
+    """真的去寫一個檔案，確認持久硬碟可用。
+
+    光檢查目錄存不存在不夠：掛載點有可能是唯讀的，或 owner 不是跑這支程式的使用者。
+    first_boot 是關鍵證據 —— 重新部署之後如果還是**同一個時間**，才代表 Volume
+    真的留住了東西；每次部署都變成當下時間，就表示根本沒掛到，只是寫進容器的暫存層。
+    """
+    info = {"path": str(DATA_DIR), "mounted": False, "writable": False,
+            "first_boot": None, "free_mb": None, "entries": None, "error": None}
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        info["mounted"] = True
+        probe = DATA_DIR / ".write-probe"
+        stamp = datetime.now(TZ_TAIPEI).isoformat(timespec="seconds")
+        probe.write_text(stamp, encoding="utf-8")
+        if probe.read_text(encoding="utf-8") != stamp:
+            raise OSError("寫進去再讀出來對不起來")
+        probe.unlink()
+        info["writable"] = True
+        if not BOOT_MARKER.exists():
+            BOOT_MARKER.write_text(stamp, encoding="utf-8")
+        info["first_boot"] = BOOT_MARKER.read_text(encoding="utf-8").strip()
+        info["free_mb"] = round(shutil.disk_usage(DATA_DIR).free / 1048576)
+        info["entries"] = sorted(p.name for p in DATA_DIR.iterdir())
+    except Exception as e:
+        info["error"] = f"{type(e).__name__}: {e}"
+    return info
 
 
 class Asset:
@@ -196,6 +228,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(asset, "no-cache")
         if path in ("/healthz", "/health"):
             h = SEATS.health()
+            h["data"] = probe_data_dir()
             return self._json(200 if h["ok"] else 503, h)
         self._json(404, {"error": "not found"})
 
@@ -210,6 +243,13 @@ def main():
     PAGE = Asset(page.read_bytes(), "text/html; charset=utf-8")
 
     log(f"啟動：每 {REFRESH_MINUTES:g} 分鐘重抓一次，sheet {SHEET_ID}")
+    d = probe_data_dir()
+    if d["writable"]:
+        log(f"持久硬碟 {d['path']}：可寫，剩 {d['free_mb']} MB，"
+            f"第一次啟動於 {d['first_boot']}，內容 {d['entries']}")
+    else:
+        log(f"⚠ 持久硬碟 {d['path']} 不可用（{d['error']}），"
+            f"寫入類功能會失效 —— 檢查 Zeabur 的硬碟掛載設定")
     ok = fetch_once()                     # 先抓一次再開始服務，避免第一個進來的人看到範例資料
     threading.Thread(target=refresher, args=(ok,), daemon=True).start()
 
