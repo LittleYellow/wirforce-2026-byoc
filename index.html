@@ -220,7 +220,7 @@ footer a{color:inherit}
 
 <script>
 const SHEET_ID = "13n2z8QgxQL-xWLR2K4zy75Xw1aeu6Grf-DuGvZBckXY";
-const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit#gid=0`;
+const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit`;
 const CACHE_KEY = "wf2026-seats";
 document.getElementById("sheetLink").href = SHEET_URL;
 
@@ -336,7 +336,7 @@ function showZone(no){
     <div class="info">
       <p class="name">${esc(z.name)}</p>
       <div class="tags"><span class="tag">營區，原表沒有給座位編號</span></div>
-      <a class="src" href="${SHEET_URL}&range=${z.cell}" target="_blank" rel="noopener">在原座位表中查看</a>
+      ${srcLink(z.cell)}
     </div>
   </article>`;
   markMap(null, no);
@@ -368,7 +368,7 @@ function showSeat(id){
         <span class="tag">${s.facing}</span>
       </div>
       <ul class="near">${rows.map(([k, v]) => `<li><b>${k}</b><span>${v}</span></li>`).join("")}</ul>
-      <a class="src" href="${SHEET_URL}&range=${s.cell}" target="_blank" rel="noopener">在原座位表中查看</a>
+      ${srcLink(s.cell)}
     </div>
     ${tableMap(s)}
   </article>`;
@@ -607,7 +607,15 @@ document.getElementById("tabs").addEventListener("click", e => {
 });
 window.addEventListener("popstate", () => route(location.pathname, false));
 
-const srcLink = cell => `<a class="src" href="${SHEET_URL}&range=${cell}" target="_blank" rel="noopener">在原座位表中查看</a>`;
+// 每張卡片的資料可能來自不同分頁（座位在地圖那張、留言在備註那張），gid 要跟著換
+function sheetUrl(cell, sheetName){
+  const gid = (DATA && DATA.gids && DATA.gids[sheetName ?? (DATA && DATA.sheet)]);
+  const base = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit`;
+  if (gid == null) return base;
+  return `${base}#gid=${gid}` + (cell ? `&range=${cell}` : "");
+}
+const srcLink = (cell, sheetName) =>
+  `<a class="src" href="${sheetUrl(cell, sheetName)}" target="_blank" rel="noopener">在原座位表中查看</a>`;
 
 /* 空白領域：14 個營區。介紹由維護者填在原表，目前多半還沒寫，有多少顯示多少。 */
 RENDER.zones = () => {
@@ -645,7 +653,7 @@ RENDER.board = () => {
           <strong>${esc(n.name || (n.seat ? "" : "（沒有填座位）"))}</strong>
         </div>
         <p class="about">${esc(n.text)}</p>
-        <div class="row">${srcLink(n.cell)}</div>
+        <div class="row">${srcLink(n.cell, DATA.notes_sheet)}</div>
       </li>`).join("")}</ul>`;
 };
 

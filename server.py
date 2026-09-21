@@ -26,7 +26,7 @@ from hashlib import md5
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from build_seats import download_xlsx, parse
+from build_seats import download_xlsx, fetch_gids, parse
 
 SHEET_ID = os.environ.get("SHEET_ID", "").strip()
 PORT = int(os.environ.get("PORT", "8080"))
@@ -109,7 +109,7 @@ def fetch_once() -> bool:
     path = None
     try:
         path = download_xlsx(SHEET_ID)
-        data = parse(path)
+        data = parse(path, fetch_gids(SHEET_ID))
         SEATS.update(data)
         log(f"✔ {data['total']} 個座位、{data['occupied']} 個已登記、"
             f"{len(data.get('zones') or [])} 個營區（工作表「{data['sheet']}」）")

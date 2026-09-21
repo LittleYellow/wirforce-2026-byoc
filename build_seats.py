@@ -50,6 +50,22 @@ def download_xlsx(sheet_id: str) -> str:
     return tmp.name
 
 
+# 「在原座位表中查看」要連到正確的分頁。gid 不在 xlsx 裡（那是 Google 自己的概念），
+# 但 htmlview 端點的 bootstrap 資料有 name -> gid 的對照。
+GID_RE = re.compile(r'items\.push\(\{name:\s*"([^"]+)"[^}]*?gid:\s*"(\d+)"')
+
+
+def fetch_gids(sheet_id: str) -> dict:
+    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/htmlview"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            html = r.read().decode("utf-8", "replace")
+        return {name: gid for name, gid in GID_RE.findall(html)}
+    except Exception:
+        return {}      # 抓不到就算了，連結會退成只開試算表不跳格子
+
+
 def cell_text(v) -> str:
     if v is None:
         return ""
@@ -441,7 +457,7 @@ def parse_sheet(grid: Grid):
     }
 
 
-def parse(path: str):
+def parse(path: str, gids: dict = None):
     wb = openpyxl.load_workbook(path, data_only=True)
     # 挑「解析出最多座位」的那張工作表；一樣多就挑登記人數多的（比較新的那張）
     best, zone_names, zone_about = None, {}, {}
@@ -466,6 +482,7 @@ def parse(path: str):
         if zone_about.get(z["no"]):
             z["about"] = zone_about[z["no"]]
     data["notes"], data["notes_sheet"] = find_notes(wb)
+    data["gids"] = gids or {}
     for no, names in sorted(zone_names.items()):
         if len(names) > 1:
             told = "、".join(f"「{n}」({'/'.join(s)})" for n, s in names.values())
@@ -499,7 +516,7 @@ def main():
     if not a.xlsx and not a.sheet_id:
         ap.error("請給 xlsx 檔案路徑或 --sheet-id")
     path = a.xlsx or download_xlsx(a.sheet_id)
-    data = parse(path)
+    data = parse(path, fetch_gids(a.sheet_id) if a.sheet_id else {})
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
     print(f"✔ 工作表「{data['sheet']}」：{data['total']} 個座位，{data['occupied']} 個已登記暱稱 → {a.out}")
