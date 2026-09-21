@@ -9,27 +9,24 @@
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;800&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
 :root{
-  --sheet:#FFF0C2;      /* 原座位表的底色 */
-  --paper:#FFFAEA;
-  --ink:#2B1B10;
-  --muted:#7A6247;
-  --line:#E3CF96;
-  --seat:#C23B22;       /* 原表座位格的紅 */
-  --seat-ink:#FFF6E6;
-  --hit:#1F5FBF;
-  --radius:6px;
+  /* WirForce 2026 主視覺：墨綠打底、螢光黃當強調色（取自 wirforce.com.tw） */
+  --sheet:#012B1E;      /* 墨綠，官網面積最大的底色 */
+  --paper:#0D2E24;      /* 卡片、輸入框 */
+  --ink:#F0FFE8;        /* 主要文字，對比 14.8 */
+  --muted:#9CBCA9;      /* 次要文字，對比 7.5 */
+  --line:#2A6149;
+  --seat:#FFFF01;       /* 螢光黃，官網 CTA 用色 */
+  --seat-ink:#19232A;   /* 螢光黃上的深色字，對比 14.9 */
+  --hit:#D4FF00;
+  --radius:2px;         /* 官網按鈕是直角，這裡收到 2px 保留銳利感 */
+  color-scheme:dark;
   --id-font:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
   --body-font:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
   box-sizing:border-box;
   padding-top:env(safe-area-inset-top,0px);
   padding-bottom:env(safe-area-inset-bottom,0px);
 }
-@media (prefers-color-scheme:dark){
-  :root:not([data-theme="light"]){
-    --sheet:#1E1810; --paper:#2A2217; --ink:#F6EBD3; --muted:#BFA985; --line:#4A3D2A;
-    --seat:#D2503A; --seat-ink:#FFF6E6; --hit:#7FB0FF;
-  }
-}
+/* 官網本身就只有深色一套，這裡跟著走，不另外做淺色版 */
 *,*::before,*::after{box-sizing:inherit}
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
 body{margin:0;background:var(--sheet);color:var(--ink);font:16px/1.6 var(--body-font);-webkit-text-size-adjust:100%}
