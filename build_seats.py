@@ -27,7 +27,7 @@ import urllib.request
 from datetime import datetime, timezone, timedelta
 
 import openpyxl
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import get_column_letter, column_index_from_string
 
 SEAT_RE = re.compile(r"^\s*([A-Z])\s*0*(\d{1,4})\s*$")
 # 「空白領域N 團名」：沒有座位編號的營區，單獨列成 zones，不混進暱稱
@@ -125,6 +125,79 @@ def find_zones(grid: Grid):
         if no not in zones or (name and not zones[no]["name"]):
             zones[no] = z
     return [zones[k] for k in sorted(zones)]
+
+
+def zone_notes(grid: Grid, zones):
+    """營區介紹：寫在「空白領域N 團名」那格的正下方。原表多半還沒寫，有多少算多少。"""
+    for z in zones:
+        col = column_index_from_string("".join(ch for ch in z["cell"] if ch.isalpha()))
+        t = grid.text.get((z["r1"] + 1, col)) or grid.text.get((z["r"] + 1, col))
+        if t and not ZONE_RE.match(t) and not SEAT_RE.match(t):
+            z["about"] = t
+    return zones
+
+
+def find_notes(wb):
+    """座位備註：某張工作表有「編號／ID／備註」三欄，玩家在自己座位旁邊留話。"""
+    for ws in wb.worksheets:
+        head = None
+        for r in range(1, min(6, ws.max_row) + 1):
+            row = {c: cell_text(ws.cell(row=r, column=c).value) for c in range(1, ws.max_column + 1)}
+            if "編號" in row.values() and "備註" in row.values():
+                head = (r, row)
+                break
+        if not head:
+            continue
+        r0, row = head
+        groups = [c for c, t in row.items() if t == "編號"]
+        notes = []
+        for r in range(r0 + 1, ws.max_row + 1):
+            for c in groups:
+                note = cell_text(ws.cell(row=r, column=c + 2).value)
+                if not note:
+                    continue
+                m = SEAT_RE.match(cell_text(ws.cell(row=r, column=c).value))
+                notes.append({
+                    "seat": f"{m.group(1)}{int(m.group(2)):04d}" if m else None,
+                    "name": cell_text(ws.cell(row=r, column=c + 1).value),
+                    "text": note,
+                    "cell": f"{get_column_letter(c + 2)}{r}",
+                })
+        if notes:
+            return notes, ws.title
+    return [], None
+
+
+# 場地裡的吃喝與設施。原表沒有欄位標記這些，只能靠關鍵字認，所以會把抓到的印出來人工核對。
+FOOD_RE = re.compile(r"食堂|咖啡|cafe|星巴克|7-?11|超商|便利商店|餐廳|飲料|whiskey|ktv|居酒屋", re.I)
+FACILITY_RE = re.compile(r"^wc$|廁所|洗手間|郵局|atm|出入口|吸菸|置物", re.I)
+HOURS_RE = re.compile(r"\d{1,2}[:：]\d{2}\s*[–\-~〜]\s*\d{1,2}[:：]\d{2}")
+# 維護者的閒聊也常提到星巴克、7-11，但那是句子不是地點標籤 —— 有句讀就不是招牌
+CHATTY_RE = re.compile(r"[。，？！（）()]")
+
+
+def find_places(grid: Grid, seat_cols):
+    """挑出吃喝與設施的標籤。座位帶裡面的不算（那是暱稱），只看場地圖其他地方。"""
+    lo, hi = seat_cols
+    found = {}
+    for (r, c), t in sorted(grid.text.items()):
+        if lo <= c <= hi or len(t) > 100:
+            continue
+        if CHATTY_RE.search(t):
+            continue
+        kind = "food" if FOOD_RE.search(t) else ("facility" if FACILITY_RE.search(t) else None)
+        if not kind:
+            continue
+        t = t.strip('"「」 ')
+        hours = HOURS_RE.findall(t)
+        key = re.sub(r"\s+", "", t)
+        # 同一個地點在「攤位進駐表」和場地圖上各出現一次，留資訊比較多的那個
+        if key in found and len(found[key]["hours"]) >= len(hours):
+            continue
+        found[key] = {"name": t, "kind": kind, "hours": hours,
+                      "cell": f"{get_column_letter(c)}{r}",
+                      "color": fill_hex(grid.ws.cell(row=r, column=c))}
+    return sorted(found.values(), key=lambda p: (p["kind"] != "food", p["name"]))
 
 
 def split_blocks(row_seats):
@@ -363,6 +436,7 @@ def parse_sheet(grid: Grid):
         "rows": rows_out,
         "seats": seats_out,
         "zones": find_zones(grid),
+        "places": find_places(grid, (min(c for _, c in seat_at_col), max(c for _, c in seat_at_col))),
         "warnings": warnings,
     }
 
@@ -370,10 +444,12 @@ def parse_sheet(grid: Grid):
 def parse(path: str):
     wb = openpyxl.load_workbook(path, data_only=True)
     # 挑「解析出最多座位」的那張工作表；一樣多就挑登記人數多的（比較新的那張）
-    best, zone_names = None, {}
+    best, zone_names, zone_about = None, {}, {}
     for ws in wb.worksheets:
         grid = Grid(ws)
-        for z in find_zones(grid):          # 順便收集每張表寫的空白領域團名，等下對一下
+        for z in zone_notes(grid, find_zones(grid)):   # 介紹寫在「空白領域」那張，不是地圖那張
+            if z.get("about"):
+                zone_about.setdefault(z["no"], z["about"])
             # 比對時忽略空白與各種破折號，只有真的換了團名才算不一致
             key = re.sub(r"[\s\-－–—~～]+", "", z["name"])
             zone_names.setdefault(z["no"], {}).setdefault(key, (z["name"], []))[1].append(ws.title)
@@ -386,6 +462,10 @@ def parse(path: str):
     if best is None:
         sys.exit("找不到任何座位編號（格式應為 A0001、B0123 這種）")
     data = best[1]
+    for z in data["zones"]:
+        if zone_about.get(z["no"]):
+            z["about"] = zone_about[z["no"]]
+    data["notes"], data["notes_sheet"] = find_notes(wb)
     for no, names in sorted(zone_names.items()):
         if len(names) > 1:
             told = "、".join(f"「{n}」({'/'.join(s)})" for n, s in names.values())

@@ -134,6 +134,18 @@ SHEET_ID=13n2z8QgxQL-xWLR2K4zy75Xw1aeu6Grf-DuGvZBckXY python server.py
 > `.github/workflows/update-seats.yml`（GitHub Pages 那套）**目前是停用狀態**，先留著當備案。
 > 要切回去就 `gh workflow enable "更新座位資料"`，並到 Settings → Pages 把 Source 設成 GitHub Actions。
 
+## 頁面
+
+| path | 內容 | 資料來源 |
+|---|---|---|
+| `/` | 座位查詢 + 全區地圖 | 地圖工作表（目前「世貿場地」） |
+| `/map` | 同上，直接展開地圖 | 同上 |
+| `/zones` | 空白領域 14 個營區與介紹 | 「空白領域」工作表（介紹寫在團名那格下方） |
+| `/board` | 留言板 | 有「編號／ID／備註」三欄那張的備註欄 |
+| `/food` | 美食與設施（含營業時間） | 場地圖上的招牌 |
+
+路由在前端做，後端把這些 path 都送同一份 `index.html`。
+
 ## 頁面功能
 - 暱稱／座位編號查詢，結果附同桌、對面、背後、隔壁（打 a24、A024、A0024 都找得到 A0024）
 - 空白領域營區可以用團名搜尋（例如「放影旅團」）

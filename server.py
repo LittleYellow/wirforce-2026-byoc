@@ -180,9 +180,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_HEAD(self):
         self.do_GET()
 
+    # 前端自己做路由，這些 path 一律送同一份 index.html
+    PAGES = ("/", "/index.html", "/zones", "/board", "/food", "/map")
+
     def do_GET(self):
-        path = self.path.split("?", 1)[0]
-        if path in ("/", "/index.html"):
+        path = self.path.split("?", 1)[0].rstrip("/") or "/"
+        if path in self.PAGES:
             # 頁面本身很少變，但別讓瀏覽器快取太久，改版才推得動
             return self._send(PAGE, "public, max-age=300, must-revalidate")
         if path == "/seats.json":

@@ -119,6 +119,32 @@ header p{margin:6px 0 18px;color:var(--muted);font-size:14px}
 .stub.zone{background:var(--muted)}
 .list .sid.zn{font:700 15px/1 var(--body-font);color:var(--muted)}
 
+/* 分頁 */
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px}
+.tabs a{text-decoration:none;font:500 14px/1 var(--body-font);color:var(--ink);
+  border:1.5px solid var(--line);border-radius:999px;padding:9px 14px}
+.tabs a.on{background:var(--seat);color:var(--seat-ink);border-color:var(--seat);font-weight:700}
+.tabs a:focus-visible{outline:2px solid var(--hit);outline-offset:2px}
+
+/* 空白領域／留言板／美食設施共用的卡片 */
+.cards{margin:0;padding:0;list-style:none}
+.card{background:var(--paper);border:1.5px solid var(--line);border-radius:var(--radius);
+  padding:12px 14px;margin-bottom:8px}
+.card h3{margin:0;font-size:17px;font-weight:700;overflow-wrap:anywhere}
+.card .sub{font-size:13px;color:var(--muted);margin-top:2px}
+.card .about{margin:8px 0 0;font-size:15px;overflow-wrap:anywhere}
+.card .none{margin:8px 0 0;font-size:14px;color:var(--muted)}
+.card .row{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;margin-top:8px}
+.card .hours{font:600 14px/1.4 var(--body-font);color:var(--hit);overflow-wrap:anywhere}
+.card button{all:unset;cursor:pointer;font:500 13px/1 var(--body-font);color:var(--ink);
+  border:1.5px solid var(--line);border-radius:999px;padding:7px 12px}
+.card button:focus-visible{outline:2px solid var(--hit);outline-offset:1px}
+.card .seatlink{font:800 20px/1 var(--id-font);color:var(--seat);text-decoration:none}
+.card .seatlink:focus-visible{outline:2px solid var(--hit)}
+.grouphead{font-size:13px;color:var(--muted);margin:14px 0 6px;letter-spacing:1px}
+.grouphead:first-child{margin-top:0}
+.intro{font-size:14px;color:var(--muted);margin:0 0 12px}
+
 .list{margin:12px 0;padding:0;list-style:none}
 .list button{all:unset;box-sizing:border-box;cursor:pointer;display:flex;align-items:center;gap:12px;width:100%;padding:10px 12px;background:var(--paper);border:1.5px solid var(--line);border-radius:var(--radius);margin-bottom:6px}
 .list button:focus-visible{outline:3px solid var(--hit)}
@@ -143,6 +169,14 @@ footer a{color:inherit}
     <p>輸入玩家暱稱或座位編號，找到他坐哪、隔壁和對面是誰。也可以用團名找空白領域營區。</p>
   </header>
 
+  <nav class="tabs" id="tabs" aria-label="頁面">
+    <a href="/" data-view="seat">座位查詢</a>
+    <a href="/zones" data-view="zones">空白領域</a>
+    <a href="/board" data-view="board">留言板</a>
+    <a href="/food" data-view="food">美食與設施</a>
+  </nav>
+
+  <section id="view-seat">
   <div class="search" role="search">
     <label for="q">暱稱、座位編號或空白領域團名</label>
     <input id="q" type="search" autocomplete="off" autocapitalize="off" spellcheck="false"
@@ -171,6 +205,11 @@ footer a{color:inherit}
   </section>
 
   <div id="out"></div>
+  </section>
+
+  <section id="view-zones" hidden></section>
+  <section id="view-board" hidden></section>
+  <section id="view-food" hidden></section>
 
   <footer>
     座位資料整理自社群維護的
@@ -223,6 +262,7 @@ function useData(d, note){
   if (MAP.built){ MAP.built = false; MAP.cells = {}; buildMap(); }  // 換資料後重畫
   const q = new URLSearchParams(location.search).get("q");
   if (q){ $q.value = q; run(q, false); }
+  route(location.pathname, false);
 }
 
 async function load(){
@@ -539,6 +579,117 @@ if (window.ResizeObserver){
     if (MAP.built && !$map.hidden && MAP.zoom === "fit") setZoom("fit");
   });
 }
+
+/* ── 分頁路由 ───────────────────────────────────────────────────────────
+   後端把 /zones、/board、/food 都送同一份 index.html，路由在前端做。     */
+const VIEWS = { "": "seat", "/index.html": "seat", "/map": "seat",
+                "/zones": "zones", "/board": "board", "/food": "food" };
+const RENDER = {};
+
+function route(path, push = true){
+  const key = path.replace(/\/+$/, "");
+  const view = VIEWS[key] ?? "seat";
+  for (const v of ["seat", "zones", "board", "food"])
+    document.getElementById("view-" + v).hidden = v !== view;
+  document.querySelectorAll("#tabs a").forEach(a =>
+    a.classList.toggle("on", a.dataset.view === view));
+  if (push && location.pathname !== path) history.pushState({}, "", path);
+  if (RENDER[view]) RENDER[view]();
+  if (key === "/map" && DATA && $map.hidden) $mapToggle.click();
+}
+
+document.getElementById("tabs").addEventListener("click", e => {
+  const a = e.target.closest("a[data-view]");
+  if (!a || e.metaKey || e.ctrlKey || e.shiftKey) return;   // 讓「開新分頁」照常運作
+  e.preventDefault();
+  route(a.getAttribute("href"));
+  window.scrollTo({ top: 0 });
+});
+window.addEventListener("popstate", () => route(location.pathname, false));
+
+const srcLink = cell => `<a class="src" href="${SHEET_URL}&range=${cell}" target="_blank" rel="noopener">在原座位表中查看</a>`;
+
+/* 空白領域：14 個營區。介紹由維護者填在原表，目前多半還沒寫，有多少顯示多少。 */
+RENDER.zones = () => {
+  const box = document.getElementById("view-zones");
+  const zones = (DATA && DATA.zones) || [];
+  if (!zones.length) return box.innerHTML = `<p class="empty-state">這份座位表裡沒有空白領域資料。</p>`;
+  const written = zones.filter(z => z.about).length;
+  box.innerHTML = `<p class="intro">共 ${zones.length} 個營區。介紹由各營區自己填在原座位表，
+    目前有 ${written} 則；原表補了什麼，這裡 30 分鐘內就會跟著更新。</p>
+    <ul class="cards">${zones.map(z => `
+      <li class="card">
+        <h3>${esc(z.name)}</h3>
+        <div class="sub">${z.label}</div>
+        ${z.about ? `<p class="about">${esc(z.about)}</p>`
+                  : `<p class="none">這個營區還沒有填介紹</p>`}
+        <div class="row">
+          <button data-zone="${z.no}">在地圖上看</button>
+          ${srcLink(z.cell)}
+        </div>
+      </li>`).join("")}</ul>`;
+};
+
+/* 留言板：玩家寫在自己座位旁邊的備註 */
+RENDER.board = () => {
+  const box = document.getElementById("view-board");
+  const notes = (DATA && DATA.notes) || [];
+  if (!notes.length) return box.innerHTML = `<p class="empty-state">目前還沒有人留言。
+    在原座位表自己座位那列的「備註」欄寫字，就會出現在這裡。</p>`;
+  box.innerHTML = `<p class="intro">${notes.length} 則留言，來自原座位表的「備註」欄。
+    想留言就在原表自己座位那一列寫，30 分鐘內會出現在這裡。</p>
+    <ul class="cards">${notes.map(n => `
+      <li class="card">
+        <div class="row">
+          ${n.seat && BY_ID[n.seat] ? `<a class="seatlink" href="/?q=${n.seat}" data-seat="${n.seat}">${n.seat}</a>` : ""}
+          <strong>${esc(n.name || (n.seat ? "" : "（沒有填座位）"))}</strong>
+        </div>
+        <p class="about">${esc(n.text)}</p>
+        <div class="row">${srcLink(n.cell)}</div>
+      </li>`).join("")}</ul>`;
+};
+
+/* 美食與設施：原表場地圖上的招牌，含營業時間 */
+RENDER.food = () => {
+  const box = document.getElementById("view-food");
+  const places = (DATA && DATA.places) || [];
+  if (!places.length) return box.innerHTML = `<p class="empty-state">這份座位表裡沒有標出吃喝或設施。</p>`;
+  const split = p => {                       // 招牌文字前半是名字、從第一個時間起是細節
+    const m = /^(.*?)(\d{1,2}[:：]\d{2}[\s\S]*)$/.exec(p.name);
+    return m ? [m[1].trim(), m[2].trim()] : [p.name, ""];
+  };
+  const group = (kind, title) => {
+    const list = places.filter(p => p.kind === kind);
+    if (!list.length) return "";
+    return `<p class="grouphead">${title}</p><ul class="cards">${list.map(p => {
+      const [name, detail] = split(p);
+      return `<li class="card">
+        <h3>${esc(name)}</h3>
+        ${detail ? `<p class="hours">${esc(detail)}</p>` : ""}
+        <div class="row">${srcLink(p.cell)}</div>
+      </li>`; }).join("")}</ul>`;
+  };
+  box.innerHTML = `<p class="intro">整理自原座位表場地圖上的招牌，營業時間以現場公告為準。</p>
+    ${group("food", "吃喝")}${group("facility", "設施")}`;
+};
+
+// 卡片上的「在地圖上看」與座位連結（只掛新頁面，#out 有自己的 handler）
+const cardClick = e => {
+  const z = e.target.closest("button[data-zone]");
+  if (z){
+    route("/"); showZone(+z.dataset.zone);
+    if ($map.hidden) $mapToggle.click();      // 開圖時會從 MAP.curZone 補上標記
+    window.scrollTo({ top: 0 });
+    return;
+  }
+  const s = e.target.closest("a[data-seat]");
+  if (s && !e.metaKey && !e.ctrlKey && !e.shiftKey){
+    e.preventDefault(); route("/"); $q.value = s.dataset.seat; run(s.dataset.seat);
+    window.scrollTo({ top: 0 });
+  }
+};
+for (const v of ["zones", "board", "food"])
+  document.getElementById("view-" + v).addEventListener("click", cardClick);
 
 let t;
 $q.addEventListener("input", e => { clearTimeout(t); t = setTimeout(() => run(e.target.value), 120); });
