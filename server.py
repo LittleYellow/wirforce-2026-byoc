@@ -15,8 +15,11 @@
   REFRESH_MINUTES   預設 30
 """
 import gzip
+import html
 import json
 import os
+import re
+import shutil
 import sys
 import threading
 import time
@@ -34,10 +37,63 @@ REFRESH_MINUTES = float(os.environ.get("REFRESH_MINUTES", "30"))
 RETRY_SECONDS = 60          # 抓失敗就一分鐘後再試，不用等滿 30 分鐘
 TZ_TAIPEI = timezone(timedelta(hours=8))
 ROOT = Path(__file__).resolve().parent
+DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))   # Zeabur 掛上來的持久硬碟
+BOOT_MARKER = DATA_DIR / ".volume-probe.json"
+BOOT_LOCK = threading.Lock()
+BOOT_COUNTED = [False]        # 這個行程有沒有算過啟動次數
+BOOT_PERSISTED = [False]
 
 
 def log(msg):
     print(f"[{datetime.now(TZ_TAIPEI):%Y-%m-%d %H:%M:%S}] {msg}", flush=True)
+
+
+def probe_data_dir() -> dict:
+    """真的去寫一個檔案，確認持久硬碟可用。
+
+    光檢查目錄存不存在不夠，而且這支程式自己會把目錄建出來，所以 exists 幾乎一定是 True——
+    掛載點有可能是唯讀的，或 owner 不是跑這支程式的使用者，那要 writable 才看得出來。
+
+    persisted 才是「Volume 有沒有真的掛上」的答案：標記檔在這個行程啟動前就存在，
+    表示它活過了上一次重啟。沒掛 Volume 的話每次部署都是全新的容器，標記檔不會在。
+    boots 是累計啟動次數，數字一直加代表硬碟持續留著東西。
+    """
+    info = {"path": str(DATA_DIR), "exists": False, "writable": False, "persisted": False,
+            "boots": None, "first_boot": None, "free_mb": None, "entries": None, "error": None}
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        info["exists"] = True
+        probe = DATA_DIR / ".write-probe"
+        stamp = datetime.now(TZ_TAIPEI).isoformat(timespec="seconds")
+        probe.write_text(stamp, encoding="utf-8")
+        if probe.read_text(encoding="utf-8") != stamp:
+            raise OSError("寫進去再讀出來對不起來")
+        probe.unlink()
+        info["writable"] = True
+
+        with BOOT_LOCK:
+            state = {}
+            if BOOT_MARKER.exists():
+                try:
+                    state = json.loads(BOOT_MARKER.read_text(encoding="utf-8"))
+                except ValueError:
+                    state = {}                       # 檔案壞了就當第一次，不要讓健康檢查掛掉
+            if not state.get("first_boot"):
+                state = {"first_boot": stamp, "boots": 0}
+            if not BOOT_COUNTED[0]:                  # 一個行程只算一次，healthz 被打幾次都一樣
+                state["boots"] = state.get("boots", 0) + 1
+                BOOT_COUNTED[0] = True
+                BOOT_PERSISTED[0] = state["first_boot"] != stamp
+                BOOT_MARKER.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+            info["first_boot"] = state["first_boot"]
+            info["boots"] = state["boots"]
+            info["persisted"] = BOOT_PERSISTED[0]
+
+        info["free_mb"] = round(shutil.disk_usage(DATA_DIR).free / 1048576)
+        info["entries"] = sorted(p.name for p in DATA_DIR.iterdir())
+    except Exception as e:
+        info["error"] = f"{type(e).__name__}: {e}"
+    return info
 
 
 class Asset:
@@ -63,6 +119,9 @@ class Seats:
         self.last_error = None
         self.attempts = 0
         self.failures = 0
+        self.by_id = {}
+        self.by_zone = {}
+        self.generation = 0        # 資料換一次就加一，座位頁／營區頁的快取靠它作廢
 
     def update(self, data: dict):
         body = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode()
@@ -76,10 +135,23 @@ class Seats:
             self.zones = len(data.get("zones") or [])
             self.warnings = data.get("warnings") or []
             self.last_error = None
+            # 座位頁要即時組社群預覽，另外留一份查得動的索引
+            self.by_id = {x["id"]: x for x in data.get("seats") or []}
+            self.by_zone = {z["no"]: z for z in data.get("zones") or []}
+            self.generation += 1
 
     def snapshot(self):
         with self._lock:
             return self.asset
+
+    def seat(self, sid):
+        """回傳 (座位, 版號)。拿著版號才知道座位頁的快取還算不算數。"""
+        with self._lock:
+            return self.by_id.get(sid), self.generation
+
+    def zone(self, no):
+        with self._lock:
+            return self.by_zone.get(no), self.generation
 
     def health(self):
         with self._lock:
@@ -100,7 +172,105 @@ class Seats:
 
 
 SEATS = Seats()
-PAGE = None     # index.html，啟動時讀一次
+PAGE = None                    # index.html 原版，啟動時讀一次
+PAGE_HEAD = PAGE_TAIL = None   # 以 <!--meta--> 為界拆兩半，座位頁換掉中間那段
+META_OPEN, META_CLOSE = "<!--meta-->", "<!--/meta-->"
+SEAT_PATH_RE = re.compile("^/seat/([A-Za-z])0*([0-9]{1,4})$")
+ZONE_PATH_RE = re.compile("^/zone/0*([0-9]{1,2})$")
+SEAT_PAGES = {}                # (種類, 編號, 網域) -> Asset
+SEAT_PAGES_GEN = -1            # 這批快取是用哪個版本的座位資料做的
+SEAT_PAGES_LOCK = threading.Lock()
+SITE_NAME = "WirForce 2026 BYOC 座位查詢"
+
+
+def seat_meta(s: dict, url: str) -> str:
+    """一個座位的社群預覽。
+
+    貼連結到 Discord／LINE／Threads 時，對方的伺服器只抓 HTML、不執行 JavaScript，
+    所以這段一定要在後端就寫好——前端 route() 設的標題它們看不到。
+
+    放**這個座位自己的**暱稱（2026-09-22 Yellow 決定，見 AGENTS.md）：分享的是自己的位置，
+    名字就是重點。但**別人的暱稱一個都不放**——對面、隔壁、背後是誰，要點進來才看得到，
+    不會因為某個人把連結貼到聊天室，就順便把鄰居的暱稱一起攤出去。
+    """
+    e = lambda x: html.escape(str(x), quote=True)
+    where = "{} 區第 {} 排".format(s["area"], s["row_no"])
+    name = (s.get("name") or "").strip()
+    title = "{}　{}".format(s["id"], name or where)
+    bits = ["{}　{}".format(s["id"], where)]
+    facing = (s.get("facing") or "").split("（")[0].strip()
+    if facing:
+        bits.append(facing)
+    if s.get("big"):
+        bits.append("大桌")
+    desc = "，".join(bits) + "。這一頁有同桌、對面、背後、隔壁，以及整張桌子的位置圖。"
+    tags = [
+        "<title>{}｜{}</title>".format(e(title), e(SITE_NAME)),
+        '<meta name="description" content="{}">'.format(e(desc)),
+        '<meta property="og:type" content="website">',
+        '<meta property="og:site_name" content="{}">'.format(e(SITE_NAME)),
+        '<meta property="og:title" content="{}">'.format(e(title)),
+        '<meta property="og:description" content="{}">'.format(e(desc)),
+        '<meta property="og:url" content="{}">'.format(e(url)),
+        '<meta name="twitter:card" content="summary">',
+    ]
+    return "\n".join(tags) + "\n"
+
+
+def zone_meta(z: dict, url: str) -> str:
+    """一個營區的社群預覽。
+
+    這裡放介紹全文（截短）是刻意的，跟座位頁不放鄰居暱稱不衝突——營區介紹是那一團
+    自己寫在公開表上、就是要給人看的自我介紹，不是別人的個資。
+    """
+    e = lambda x: html.escape(str(x), quote=True)
+    title = "{}　{}".format(z["label"], z.get("name") or "")
+    about = " ".join((z.get("about") or "").split())
+    desc = about or "這個營區還沒有填介紹。點進來可以看到它在場地圖上的位置。"
+    if len(desc) > 150:
+        desc = desc[:149] + "…"
+    tags = [
+        "<title>{}｜{}</title>".format(e(title), e(SITE_NAME)),
+        '<meta name="description" content="{}">'.format(e(desc)),
+        '<meta property="og:type" content="website">',
+        '<meta property="og:site_name" content="{}">'.format(e(SITE_NAME)),
+        '<meta property="og:title" content="{}">'.format(e(title)),
+        '<meta property="og:description" content="{}">'.format(e(desc)),
+        '<meta property="og:url" content="{}">'.format(e(url)),
+        '<meta name="twitter:card" content="summary">',
+    ]
+    return "\n".join(tags) + "\n"
+
+
+def detail_page(kind: str, key, base: str):
+    """座位頁／營區頁：內容跟首頁同一份，只有 <head> 那段社群預覽不同。
+
+    找不到就回 None，呼叫端會改送原版頁面讓前端顯示「找不到」——比直接 404 好，
+    使用者還能用搜尋框繼續找。
+    """
+    global SEAT_PAGES_GEN
+    if kind == "seat":
+        obj, gen = SEATS.seat(key)
+        meta, path = seat_meta, "/seat/" + str(key)
+    else:
+        obj, gen = SEATS.zone(key)
+        meta, path = zone_meta, "/zone/" + str(key).zfill(2)
+    if obj is None:
+        return None
+    ck = (kind, key, base)
+    with SEAT_PAGES_LOCK:
+        if SEAT_PAGES_GEN != gen:      # 資料更新了，整批重做
+            SEAT_PAGES.clear()
+            SEAT_PAGES_GEN = gen
+        hit = SEAT_PAGES.get(ck)
+    if hit:
+        return hit
+    asset = Asset((PAGE_HEAD + meta(obj, base + path) + PAGE_TAIL).encode(),
+                  "text/html; charset=utf-8")
+    with SEAT_PAGES_LOCK:
+        if SEAT_PAGES_GEN == gen:      # 組的過程中又更新了就不要存，下次重做
+            SEAT_PAGES[ck] = asset
+    return asset
 
 
 def fetch_once() -> bool:
@@ -180,11 +350,29 @@ class Handler(BaseHTTPRequestHandler):
     def do_HEAD(self):
         self.do_GET()
 
+    # 前端自己做路由，這些 path 一律送同一份 index.html
+    PAGES = ("/", "/index.html", "/zones", "/board", "/food", "/map")
+
+    def _base_url(self) -> str:
+        """組 og:url 用。Zeabur 在前面擋了一層，真正的協定與網域在 X-Forwarded-* 裡。"""
+        proto = (self.headers.get("X-Forwarded-Proto") or "https").split(",")[0].strip()
+        host = (self.headers.get("X-Forwarded-Host") or self.headers.get("Host") or "").split(",")[0].strip()
+        return proto + "://" + host
+
     def do_GET(self):
-        path = self.path.split("?", 1)[0]
-        if path in ("/", "/index.html"):
+        path = self.path.split("?", 1)[0].rstrip("/") or "/"
+        if path in self.PAGES:
             # 頁面本身很少變，但別讓瀏覽器快取太久，改版才推得動
             return self._send(PAGE, "public, max-age=300, must-revalidate")
+        m = SEAT_PATH_RE.match(path)
+        if m:
+            sid = m.group(1).upper() + m.group(2).zfill(4)
+            page = detail_page("seat", sid, self._base_url()) or PAGE
+            return self._send(page, "public, max-age=300, must-revalidate")
+        m = ZONE_PATH_RE.match(path)
+        if m:
+            page = detail_page("zone", int(m.group(1)), self._base_url()) or PAGE
+            return self._send(page, "public, max-age=300, must-revalidate")
         if path == "/seats.json":
             asset = SEATS.snapshot()
             if asset is None:
@@ -193,6 +381,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(asset, "no-cache")
         if path in ("/healthz", "/health"):
             h = SEATS.health()
+            h["data"] = probe_data_dir()
             return self._json(200 if h["ok"] else 503, h)
         self._json(404, {"error": "not found"})
 
@@ -205,8 +394,23 @@ def main():
     if not page.exists():
         sys.exit(f"找不到 {page}")
     PAGE = Asset(page.read_bytes(), "text/html; charset=utf-8")
+    text = page.read_text(encoding="utf-8")
+    if META_OPEN not in text or META_CLOSE not in text:
+        sys.exit("index.html 裡找不到 " + META_OPEN + " ... " + META_CLOSE
+                 + " 這段，座位頁沒辦法換社群預覽")
+    global PAGE_HEAD, PAGE_TAIL
+    PAGE_HEAD = text.split(META_OPEN, 1)[0]
+    PAGE_TAIL = text.split(META_CLOSE, 1)[1]
 
     log(f"啟動：每 {REFRESH_MINUTES:g} 分鐘重抓一次，sheet {SHEET_ID}")
+    d = probe_data_dir()
+    if d["writable"]:
+        kept = (f"資料留得住（第 {d['boots']} 次啟動，最早 {d['first_boot']}）"
+                if d["persisted"] else "⚠ 但這是全新的目錄，可能根本沒掛到 Volume")
+        log(f"持久硬碟 {d['path']}：可寫，剩 {d['free_mb']} MB，{kept}")
+    else:
+        log(f"⚠ 持久硬碟 {d['path']} 不可用（{d['error']}），"
+            f"寫入類功能會失效 —— 檢查 Zeabur 的硬碟掛載設定")
     ok = fetch_once()                     # 先抓一次再開始服務，避免第一個進來的人看到範例資料
     threading.Thread(target=refresher, args=(ok,), daemon=True).start()
 

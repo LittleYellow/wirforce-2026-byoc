@@ -11,6 +11,7 @@ COPY build_seats.py server.py index.html ./
 # Zeabur 會自己給 PORT，這裡只是本機跑的預設值
 ENV PORT=8080 \
     REFRESH_MINUTES=30 \
+    DATA_DIR=/data \
     PYTHONUNBUFFERED=1
 EXPOSE 8080
 
