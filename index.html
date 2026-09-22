@@ -362,9 +362,37 @@ function run(q, push = true){
     ${hits.length > 40 ? `<p class="empty-state">還有 ${hits.length - 40} 筆，請多打幾個字。</p>` : ""}`;
 }
 
-// 空白領域：只有營區名稱，沒有座位、也沒有對面背後
-function showZone(no){
-  const z = BY_ZONE[no]; if (!z) return;
+/* 營區的介紹與活動：寫在原表「空白領域」分頁、團名正下方那個合併的大格子。
+   跟座位的 seatAbout() 是同一個位置、同一種樣式——從地圖點營區跟點座位，
+   看到的東西要一致，不然只有座位有介紹、營區點了沒反應。 */
+function zoneAbout(z){
+  const body = z.about ? `<p class="about">${esc(z.about)}</p>`
+    : `<p class="none">這個營區還沒有介紹。在原座位表「空白領域」分頁、
+       團名正下方那一格寫字（活動時間表用 Alt+Enter 換行），30 分鐘內就會出現在這裡。</p>`;
+  return `<section class="seat-about" aria-label="${z.label} 的介紹與活動">
+    <h3>介紹與活動</h3>${body}
+    <div class="row">
+      ${navigator.share ? `<button class="linkbtn share" type="button" data-share="/zone/${zpad(z.no)}"
+        data-title="${esc(`${z.label}　${z.name}`)}">分享這個營區</button>` : ""}
+      <button class="linkbtn" type="button" data-copy="/zone/${zpad(z.no)}">複製這頁連結</button>
+      <input class="plainlink" type="text" readonly hidden aria-label="這個營區頁的網址">
+    </div>
+  </section>`;
+}
+
+/* 空白領域：只有營區名稱，沒有座位、也沒有對面背後。
+   nav 的意思跟 showSeat 一樣："push" 是點進來的、"replace" 是查出來的、
+   null 是本來就從這個網址進來的。 */
+function showZone(no, nav = "replace"){
+  const z = BY_ZONE[no];
+  if (!z){                                  // 網址上的號碼原表沒有（只有 01~14）
+    if (nav) setPath(`/zone/${zpad(no)}`, nav === "push");
+    setTitle(`找不到空白領域${zpad(no)}`);
+    $out.innerHTML = `<p class="empty-state">找不到 <b>空白領域${zpad(no)}</b>。
+      原表目前只有 01～14。上面的搜尋框可以用團名再找一次。</p>`;
+    return markMap(null);
+  }
+  if (nav) setPath(`/zone/${zpad(no)}`, nav === "push");
   setTitle(`${z.label}　${z.name}`);
   $out.innerHTML = `
   <article class="ticket" aria-label="${z.label} 資訊">
@@ -374,6 +402,7 @@ function showZone(no){
       <div class="tags"><span class="tag">營區，原表沒有給座位編號</span></div>
       ${srcLink(z.cell)}
     </div>
+    ${zoneAbout(z)}
   </article>`;
   markMap(null, no);
 }
@@ -560,8 +589,10 @@ function buildMap(){
 
   html += zones.map(z => {
     const k = tone(z.color), label = `${z.label}　${z.name}`;
+    // 滑鼠停在營區上就看得到介紹；aria-label 維持精簡，讀螢幕的人不需要整段活動表
+    const tip = z.about ? `${label}\n${z.about}` : label;
     return `<div class="z" role="button" tabindex="-1" data-zone="${z.no}"
-      title="${label}" aria-label="${label}"
+      title="${esc(tip)}" aria-label="${esc(label)}"
       style="grid-row:${z.r - r0 + 2}/span ${z.r1 - z.r + 1};grid-column:${z.c0 - c0 + 1}/span ${z.c1 - z.c0 + 1};
       --c:${k.c};--c0:${k.c0};--t:${k.t}"><b>${String(z.no).padStart(2, "0")}</b><em>${esc(z.name)}</em></div>`;
   }).join("");
@@ -658,11 +689,21 @@ $map.addEventListener("click", e => {
   if (j) return jumpTo(j.dataset.jump);
   const cell = e.target.closest(".s[data-id],.z[data-zone]");
   if (!cell) return;
-  if (MAP.zoom === "fit"){ setZoom("big"); centerCell(cell); return; }  // 總覽時先放大，避免誤觸
-  const q = cell.dataset.id || BY_ZONE[cell.dataset.zone].name;
-  $q.value = q;
-  if (cell.dataset.id) showSeat(cell.dataset.id, "push"); else run(q);
-  $out.scrollIntoView({ block:"nearest" });
+  // 全區時一個座位才 3～4 px，先放大避免誤觸；但營區方塊大得多、又有編號，
+  // 點它就是刻意的，再要求點第二下只會讓人以為沒反應（放大後畫面會重新置中，
+  // 第二下常常打到旁邊的座位）。
+  if (MAP.zoom === "fit" && cell.dataset.id){ setZoom("big"); centerCell(cell); return; }
+  if (cell.dataset.id){
+    $q.value = cell.dataset.id;
+    showSeat(cell.dataset.id, "push");
+  } else {
+    const z = BY_ZONE[cell.dataset.zone];
+    $q.value = z ? z.name : "";
+    showZone(+cell.dataset.zone, "push");
+  }
+  // 卡片在地圖下面，地圖放大時很長。用 start 讓卡片的「頭」對齊畫面上緣，
+  // nearest 遇到比畫面高的卡片會只露出底部，看起來就像沒反應。
+  $out.scrollIntoView({ block:"start" });
 });
 
 // 轉向、視窗變寬都要重算「全區」的格子大小
@@ -688,6 +729,11 @@ const setTitle = t => document.title = t ? `${t}｜${SITE_TITLE}` : SITE_TITLE;
 const seatOfPath = key => { const m = /^\/seat\/([^/]+)$/.exec(key);
   return m ? seatIdOf(decodeURIComponent(m[1])) : null; };
 
+// 營區同理：/zone/01。手打的 /zone/1 也收。
+const zpad = n => String(n).padStart(2, "0");
+const zoneOfPath = key => { const m = /^\/zone\/0*(\d{1,2})$/.exec(key);
+  return m ? +m[1] : null; };
+
 function setPath(path, push){
   if (location.pathname === path && !location.search) return;
   history[push ? "pushState" : "replaceState"]({}, "", path);
@@ -696,7 +742,8 @@ function setPath(path, push){
 function route(path, push = true){
   const key = path.replace(/\/+$/, "");
   const sid = seatOfPath(key);
-  const view = sid ? "seat" : (VIEWS[key] ?? "seat");
+  const zno = zoneOfPath(key);
+  const view = (sid || zno) ? "seat" : (VIEWS[key] ?? "seat");
   for (const v of ["seat", "zones", "board", "food"])
     document.getElementById("view-" + v).hidden = v !== view;
   document.querySelectorAll("#tabs a").forEach(a =>
@@ -708,6 +755,11 @@ function route(path, push = true){
   if (sid){                                // 網址本來就是這一頁；只有大小寫／補零要改才動它
     $q.value = sid;
     return showSeat(sid, key === `/seat/${sid}` ? null : "replace");
+  }
+  if (zno){
+    const z = BY_ZONE[zno];
+    $q.value = z ? z.name : "";
+    return showZone(zno, key === `/zone/${zpad(zno)}` ? null : "replace");
   }
   if (view !== "seat"){
     const tab = document.querySelector(`#tabs a[data-view="${view}"]`);
@@ -805,7 +857,7 @@ RENDER.food = () => {
 const cardClick = e => {
   const z = e.target.closest("button[data-zone]");
   if (z){
-    route("/"); showZone(+z.dataset.zone);
+    route("/", false); showZone(+z.dataset.zone, "push");
     if ($map.hidden) $mapToggle.click();      // 開圖時會從 MAP.curZone 補上標記
     window.scrollTo({ top: 0 });
     return;

@@ -120,7 +120,8 @@ class Seats:
         self.attempts = 0
         self.failures = 0
         self.by_id = {}
-        self.generation = 0        # 資料換一次就加一，座位頁的快取靠它作廢
+        self.by_zone = {}
+        self.generation = 0        # 資料換一次就加一，座位頁／營區頁的快取靠它作廢
 
     def update(self, data: dict):
         body = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode()
@@ -136,6 +137,7 @@ class Seats:
             self.last_error = None
             # 座位頁要即時組社群預覽，另外留一份查得動的索引
             self.by_id = {x["id"]: x for x in data.get("seats") or []}
+            self.by_zone = {z["no"]: z for z in data.get("zones") or []}
             self.generation += 1
 
     def snapshot(self):
@@ -146,6 +148,10 @@ class Seats:
         """回傳 (座位, 版號)。拿著版號才知道座位頁的快取還算不算數。"""
         with self._lock:
             return self.by_id.get(sid), self.generation
+
+    def zone(self, no):
+        with self._lock:
+            return self.by_zone.get(no), self.generation
 
     def health(self):
         with self._lock:
@@ -170,7 +176,8 @@ PAGE = None                    # index.html 原版，啟動時讀一次
 PAGE_HEAD = PAGE_TAIL = None   # 以 <!--meta--> 為界拆兩半，座位頁換掉中間那段
 META_OPEN, META_CLOSE = "<!--meta-->", "<!--/meta-->"
 SEAT_PATH_RE = re.compile("^/seat/([A-Za-z])0*([0-9]{1,4})$")
-SEAT_PAGES = {}                # (座位編號, 網域) -> Asset
+ZONE_PATH_RE = re.compile("^/zone/0*([0-9]{1,2})$")
+SEAT_PAGES = {}                # (種類, 編號, 網域) -> Asset
 SEAT_PAGES_GEN = -1            # 這批快取是用哪個版本的座位資料做的
 SEAT_PAGES_LOCK = threading.Lock()
 SITE_NAME = "WirForce 2026 BYOC 座位查詢"
@@ -210,25 +217,59 @@ def seat_meta(s: dict, url: str) -> str:
     return "\n".join(tags) + "\n"
 
 
-def seat_page(sid: str, base: str):
-    """座位頁：內容跟首頁同一份，只有 <head> 那段社群預覽不同。找不到座位回 None。"""
+def zone_meta(z: dict, url: str) -> str:
+    """一個營區的社群預覽。
+
+    這裡放介紹全文（截短）是刻意的，跟座位頁不放鄰居暱稱不衝突——營區介紹是那一團
+    自己寫在公開表上、就是要給人看的自我介紹，不是別人的個資。
+    """
+    e = lambda x: html.escape(str(x), quote=True)
+    title = "{}　{}".format(z["label"], z.get("name") or "")
+    about = " ".join((z.get("about") or "").split())
+    desc = about or "這個營區還沒有填介紹。點進來可以看到它在場地圖上的位置。"
+    if len(desc) > 150:
+        desc = desc[:149] + "…"
+    tags = [
+        "<title>{}｜{}</title>".format(e(title), e(SITE_NAME)),
+        '<meta name="description" content="{}">'.format(e(desc)),
+        '<meta property="og:type" content="website">',
+        '<meta property="og:site_name" content="{}">'.format(e(SITE_NAME)),
+        '<meta property="og:title" content="{}">'.format(e(title)),
+        '<meta property="og:description" content="{}">'.format(e(desc)),
+        '<meta property="og:url" content="{}">'.format(e(url)),
+        '<meta name="twitter:card" content="summary">',
+    ]
+    return "\n".join(tags) + "\n"
+
+
+def detail_page(kind: str, key, base: str):
+    """座位頁／營區頁：內容跟首頁同一份，只有 <head> 那段社群預覽不同。
+
+    找不到就回 None，呼叫端會改送原版頁面讓前端顯示「找不到」——比直接 404 好，
+    使用者還能用搜尋框繼續找。
+    """
     global SEAT_PAGES_GEN
-    s, gen = SEATS.seat(sid)
-    if s is None:
+    if kind == "seat":
+        obj, gen = SEATS.seat(key)
+        meta, path = seat_meta, "/seat/" + str(key)
+    else:
+        obj, gen = SEATS.zone(key)
+        meta, path = zone_meta, "/zone/" + str(key).zfill(2)
+    if obj is None:
         return None
-    key = (sid, base)
+    ck = (kind, key, base)
     with SEAT_PAGES_LOCK:
-        if SEAT_PAGES_GEN != gen:      # 座位表更新了，整批重做
+        if SEAT_PAGES_GEN != gen:      # 資料更新了，整批重做
             SEAT_PAGES.clear()
             SEAT_PAGES_GEN = gen
-        hit = SEAT_PAGES.get(key)
+        hit = SEAT_PAGES.get(ck)
     if hit:
         return hit
-    asset = Asset((PAGE_HEAD + seat_meta(s, base + "/seat/" + sid) + PAGE_TAIL).encode(),
+    asset = Asset((PAGE_HEAD + meta(obj, base + path) + PAGE_TAIL).encode(),
                   "text/html; charset=utf-8")
     with SEAT_PAGES_LOCK:
         if SEAT_PAGES_GEN == gen:      # 組的過程中又更新了就不要存，下次重做
-            SEAT_PAGES[key] = asset
+            SEAT_PAGES[ck] = asset
     return asset
 
 
@@ -325,10 +366,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(PAGE, "public, max-age=300, must-revalidate")
         m = SEAT_PATH_RE.match(path)
         if m:
-            # 原表沒有的編號（打錯字，或號碼被障礙物佔掉）就送原版頁面，
-            # 前端會顯示「找不到這個座位」——比直接 404 好，使用者還能繼續查別的
             sid = m.group(1).upper() + m.group(2).zfill(4)
-            page = seat_page(sid, self._base_url()) or PAGE
+            page = detail_page("seat", sid, self._base_url()) or PAGE
+            return self._send(page, "public, max-age=300, must-revalidate")
+        m = ZONE_PATH_RE.match(path)
+        if m:
+            page = detail_page("zone", int(m.group(1)), self._base_url()) or PAGE
             return self._send(page, "public, max-age=300, must-revalidate")
         if path == "/seats.json":
             asset = SEATS.snapshot()
