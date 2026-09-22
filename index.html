@@ -3,7 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23012B1E'/><rect x='7' y='7' width='18' height='12' rx='2' fill='%23FFFF01'/><rect x='13' y='21' width='6' height='3' fill='%23FFFF01'/><rect x='8' y='25' width='16' height='2.5' rx='1.2' fill='%23FFFF01'/></svg>">
+<!--meta-->
 <title>WirForce 2026 BYOC 座位查詢</title>
+<meta name="description" content="用座位編號或暱稱查 WirForce 2026 BYOC 的位置，看得到對面、隔壁、背後是誰。2026/09/24-27 台北世貿一館。">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="WirForce 2026 BYOC 座位查詢">
+<meta property="og:title" content="WirForce 2026 BYOC 座位查詢">
+<meta property="og:description" content="用座位編號或暱稱查 WirForce 2026 BYOC 的位置，看得到對面、隔壁、背後是誰。2026/09/24-27 台北世貿一館。">
+<meta name="twitter:card" content="summary">
+<!--/meta-->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;800&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
@@ -57,8 +66,25 @@ header p{margin:6px 0 18px;color:var(--muted);font-size:14px}
 .near li{display:flex;gap:10px;padding:3px 0;border-top:1px solid var(--line)}
 .near li:first-child{border-top:0}
 .near b{flex:0 0 3.5em;color:var(--muted);font-weight:500}
-.near button{all:unset;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
-.near button:focus-visible{outline:2px solid var(--hit);outline-offset:2px}
+.near button,.near a{all:unset;cursor:pointer;color:inherit;text-decoration:underline;text-underline-offset:3px}
+.near button:focus-visible,.near a:focus-visible{outline:2px solid var(--hit);outline-offset:2px}
+
+/* 座位獨立頁（/seat/A0024）的「介紹與活動」，內容來自原表的備註欄 */
+.seat-about{grid-column:1/-1;border-top:1.5px solid var(--line);padding:12px 16px}
+.seat-about h3{margin:0 0 8px;font:500 13px/1 var(--body-font);color:var(--muted);letter-spacing:1px}
+.seat-about .note+.note{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+.seat-about .about{margin:0;font-size:15px;overflow-wrap:anywhere}
+.seat-about .by{margin:4px 0 0;font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.seat-about .none{margin:0;font-size:14px;color:var(--muted)}
+.seat-about .row{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;margin-top:8px}
+.seat-about .src{margin-top:0}
+.linkbtn{all:unset;cursor:pointer;font:500 13px/1 var(--body-font);color:var(--ink);
+  border:1.5px solid var(--line);border-radius:999px;padding:7px 12px}
+.linkbtn:focus-visible{outline:2px solid var(--hit);outline-offset:1px}
+/* 分享是這一頁的主要動作，用螢光黃；複製連結退成次要 */
+.linkbtn.share{background:var(--seat);color:var(--seat-ink);border-color:var(--seat);font-weight:700}
+.plainlink{flex:1 1 220px;min-width:0;font:400 13px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color:var(--ink);background:var(--sheet);border:1.5px solid var(--line);border-radius:var(--radius);padding:7px 10px}
 
 /* 同桌小地圖：照原表的樣子畫 */
 .table-map{grid-column:1/-1;border-top:2px solid var(--ink);padding:10px 0 12px;background:var(--sheet)}
@@ -227,7 +253,7 @@ document.getElementById("sheetLink").href = SHEET_URL;
 // 找不到 seats.json 時的範例資料（依座位表截圖重建的一小塊 A 區），部署後不會用到
 const DEMO = {"generated_at":"2026-09-20 07:57","sheet":"工作表1","total":48,"occupied":32,"rows":[{"r":100,"side":1,"seats":["A01","A02","A03","A04","A05","A06","A07","A08","A09","A10","A11","A12"]},{"r":103,"side":-1,"seats":["A28","A27","A26","A25","A24","A23","A22","A21","A20","A19","A18","A17"]},{"r":104,"side":1,"seats":["A29","A30","A31","A32","A33","A34","A35","A36","A37","A38","A39","A40"]},{"r":107,"side":-1,"seats":["A52","A51","A50","A49","A48","A47","A46","A45","A44","A43","A42","A41"]}],"seats":[{"id":"A01","area":"A","num":1,"cell":"E100","color":"#C8452F","name":"shirotsume","big":true,"partner":"A02","opposite":"A28","behind":null,"left":null,"right":"A02","row_no":1,"facing":"面上排（暱稱寫在下方）","_row":100},{"id":"A02","area":"A","num":2,"cell":"F100","color":"#C8452F","name":"shirotsume","big":true,"partner":"A01","opposite":"A27","behind":null,"left":"A01","right":"A03","row_no":1,"facing":"面上排（暱稱寫在下方）","_row":100},{"id":"A03","area":"A","num":3,"cell":"G100","color":"#C8452F","name":"kumaoji","big":true,"partner":"A04","opposite":"A26","behind":null,"left":"A02","right":"A04","row_no":1,"facing":"面上排（暱稱寫在下方）","_row":100},{"id":"A04","area":"A","num":4,"cell":"H100","color":"#C8452F","name":"kumaoji","big":true,"partner":"A03","opposite":"A25","behind":null,"left":"A03","right":"A05","row_no":1,"facing":"面上排（暱稱寫在下方）","_row":100},{"id":"A05","area":"A","num":5,"cell":"I100","color":"#FF9900","name":"","big":false,"partner":null,"opposite":"A24","behind":null,"left":"A04","right":"A06","row_no":1,"facing":"面上排（暱稱寫在下方）","_row":100},{"id":"A06","area":"A","num":6,"cell":"J100","color":"#FF9900","name":"","big":false,"partner":null,"opposite":"A23","behind":null,"left":"A05","right":"A07","row_no":1,"facing":"面上排（暱稱寫在下方）","_row":100},{"id":"A07","area":"A","num":7,"cell":"K100","color":"#FF9900","name":"","big":false,"partner":null,"opposite":"A22","behind":null,"left":"A06","right":"A08","row_no":1,"facing":"面上排（暱稱寫在下方）","_row":100},{"id":"A08","area":"A","num":8,"cell":"L100","color":"#FF9900","name":"","big":false,"partner":null,"opposite":"A21","behind":null,"left":"A07","right":"A09","row_no":1,"facing":"面上排（暱稱寫在下方）","_row":100},{"id":"A09","area":"A","num":9,"cell":"M100","color":"#BF9000","name":"","big":false,"partner":null,"opposite":"A20","behind":null,"left":"A08","right":"A10","row_no":1,"facing":"面上排（暱稱寫在下方）","_row":100},{"id":"A10","area":"A","num":10,"cell":"N100","color":"#BF9000","name":"","big":false,"partner":null,"opposite":"A19","behind":null,"left":"A09","right":"A11","row_no":1,"facing":"面上排（暱稱寫在下方）","_row":100},{"id":"A11","area":"A","num":11,"cell":"O100","color":"#BF9000","name":"","big":false,"partner":null,"opposite":"A18","behind":null,"left":"A10","right":"A12","row_no":1,"facing":"面上排（暱稱寫在下方）","_row":100},{"id":"A12","area":"A","num":12,"cell":"P100","color":"#00FF00","name":"炎武風","big":false,"partner":null,"opposite":"A17","behind":null,"left":"A11","right":null,"row_no":1,"facing":"面上排（暱稱寫在下方）","_row":100},{"id":"A17","area":"A","num":17,"cell":"P103","color":"#BF9000","name":"","big":false,"partner":null,"opposite":"A12","behind":"A40","left":"A18","right":null,"row_no":2,"facing":"面下排（暱稱寫在上方）","_row":103},{"id":"A18","area":"A","num":18,"cell":"O103","color":"#BF9000","name":"","big":false,"partner":null,"opposite":"A11","behind":"A39","left":"A19","right":"A17","row_no":2,"facing":"面下排（暱稱寫在上方）","_row":103},{"id":"A19","area":"A","num":19,"cell":"N103","color":"#BF9000","name":"","big":false,"partner":null,"opposite":"A10","behind":"A38","left":"A20","right":"A18","row_no":2,"facing":"面下排（暱稱寫在上方）","_row":103},{"id":"A20","area":"A","num":20,"cell":"M103","color":"#BF9000","name":"","big":false,"partner":null,"opposite":"A09","behind":"A37","left":"A21","right":"A19","row_no":2,"facing":"面下排（暱稱寫在上方）","_row":103},{"id":"A21","area":"A","num":21,"cell":"L103","color":"#FF9900","name":"深夜的大和","big":true,"partner":"A22","opposite":"A08","behind":"A36","left":"A22","right":"A20","row_no":2,"facing":"面下排（暱稱寫在上方）","_row":103},{"id":"A22","area":"A","num":22,"cell":"K103","color":"#FF9900","name":"深夜的大和","big":true,"partner":"A21","opposite":"A07","behind":"A35","left":"A23","right":"A21","row_no":2,"facing":"面下排（暱稱寫在上方）","_row":103},{"id":"A23","area":"A","num":23,"cell":"J103","color":"#FF9900","name":"奶油","big":true,"partner":"A24","opposite":"A06","behind":"A34","left":"A24","right":"A22","row_no":2,"facing":"面下排（暱稱寫在上方）","_row":103},{"id":"A24","area":"A","num":24,"cell":"I103","color":"#FF9900","name":"奶油","big":true,"partner":"A23","opposite":"A05","behind":"A33","left":"A25","right":"A23","row_no":2,"facing":"面下排（暱稱寫在上方）","_row":103},{"id":"A25","area":"A","num":25,"cell":"H103","color":"#C8452F","name":"GODGUN","big":false,"partner":null,"opposite":"A04","behind":"A32","left":"A26","right":"A24","row_no":2,"facing":"面下排（暱稱寫在上方）","_row":103},{"id":"A26","area":"A","num":26,"cell":"G103","color":"#C8452F","name":"ぬぬ","big":false,"partner":null,"opposite":"A03","behind":"A31","left":"A27","right":"A25","row_no":2,"facing":"面下排（暱稱寫在上方）","_row":103},{"id":"A27","area":"A","num":27,"cell":"F103","color":"#C8452F","name":"ゆきれー","big":false,"partner":null,"opposite":"A02","behind":"A30","left":"A28","right":"A26","row_no":2,"facing":"面下排（暱稱寫在上方）","_row":103},{"id":"A28","area":"A","num":28,"cell":"E103","color":"#C8452F","name":"mothuBG","big":false,"partner":null,"opposite":"A01","behind":"A29","left":null,"right":"A27","row_no":2,"facing":"面下排（暱稱寫在上方）","_row":103},{"id":"A29","area":"A","num":29,"cell":"E104","color":"#C8452F","name":"外置大腦","big":true,"partner":"A30","opposite":"A52","behind":"A28","left":null,"right":"A30","row_no":3,"facing":"面上排（暱稱寫在下方）","_row":104},{"id":"A30","area":"A","num":30,"cell":"F104","color":"#C8452F","name":"外置大腦","big":true,"partner":"A29","opposite":"A51","behind":"A27","left":"A29","right":"A31","row_no":3,"facing":"面上排（暱稱寫在下方）","_row":104},{"id":"A31","area":"A","num":31,"cell":"G104","color":"#C8452F","name":"Moyan7605","big":false,"partner":null,"opposite":"A50","behind":"A26","left":"A30","right":"A32","row_no":3,"facing":"面上排（暱稱寫在下方）","_row":104},{"id":"A32","area":"A","num":32,"cell":"H104","color":"#C8452F","name":"夜神月","big":false,"partner":null,"opposite":"A49","behind":"A25","left":"A31","right":"A33","row_no":3,"facing":"面上排（暱稱寫在下方）","_row":104},{"id":"A33","area":"A","num":33,"cell":"I104","color":"#C8452F","name":"幻炎","big":false,"partner":null,"opposite":"A48","behind":"A24","left":"A32","right":"A34","row_no":3,"facing":"面上排（暱稱寫在下方）","_row":104},{"id":"A34","area":"A","num":34,"cell":"J104","color":"#C8452F","name":"白喵","big":false,"partner":null,"opposite":"A47","behind":"A23","left":"A33","right":"A35","row_no":3,"facing":"面上排（暱稱寫在下方）","_row":104},{"id":"A35","area":"A","num":35,"cell":"K104","color":"#C8452F","name":"貫穿","big":false,"partner":null,"opposite":"A46","behind":"A22","left":"A34","right":"A36","row_no":3,"facing":"面上排（暱稱寫在下方）","_row":104},{"id":"A36","area":"A","num":36,"cell":"L104","color":"#C8452F","name":"Hung","big":true,"partner":"A37","opposite":"A45","behind":"A21","left":"A35","right":"A37","row_no":3,"facing":"面上排（暱稱寫在下方）","_row":104},{"id":"A37","area":"A","num":37,"cell":"M104","color":"#C8452F","name":"Hung","big":true,"partner":"A36","opposite":"A44","behind":"A20","left":"A36","right":"A38","row_no":3,"facing":"面上排（暱稱寫在下方）","_row":104},{"id":"A38","area":"A","num":38,"cell":"N104","color":"#BF9000","name":"","big":false,"partner":null,"opposite":"A43","behind":"A19","left":"A37","right":"A39","row_no":3,"facing":"面上排（暱稱寫在下方）","_row":104},{"id":"A39","area":"A","num":39,"cell":"O104","color":"#BF9000","name":"","big":false,"partner":null,"opposite":"A42","behind":"A18","left":"A38","right":"A40","row_no":3,"facing":"面上排（暱稱寫在下方）","_row":104},{"id":"A40","area":"A","num":40,"cell":"P104","color":"#BF9000","name":"","big":false,"partner":null,"opposite":"A41","behind":"A17","left":"A39","right":null,"row_no":3,"facing":"面上排（暱稱寫在下方）","_row":104},{"id":"A41","area":"A","num":41,"cell":"P107","color":"#BF9000","name":"","big":false,"partner":null,"opposite":"A40","behind":null,"left":"A42","right":null,"row_no":4,"facing":"面下排（暱稱寫在上方）","_row":107},{"id":"A42","area":"A","num":42,"cell":"O107","color":"#BF9000","name":"","big":false,"partner":null,"opposite":"A39","behind":null,"left":"A43","right":"A41","row_no":4,"facing":"面下排（暱稱寫在上方）","_row":107},{"id":"A43","area":"A","num":43,"cell":"N107","color":"#C8452F","name":"照井信助","big":false,"partner":null,"opposite":"A38","behind":null,"left":"A44","right":"A42","row_no":4,"facing":"面下排（暱稱寫在上方）","_row":107},{"id":"A44","area":"A","num":44,"cell":"M107","color":"#C8452F","name":"瑟瑟熊(已仙逝)","big":true,"partner":"A45","opposite":"A37","behind":null,"left":"A45","right":"A43","row_no":4,"facing":"面下排（暱稱寫在上方）","_row":107},{"id":"A45","area":"A","num":45,"cell":"L107","color":"#C8452F","name":"瑟瑟熊(已仙逝)","big":true,"partner":"A44","opposite":"A36","behind":null,"left":"A46","right":"A44","row_no":4,"facing":"面下排（暱稱寫在上方）","_row":107},{"id":"A46","area":"A","num":46,"cell":"K107","color":"#C8452F","name":"嫌麻煩的苗一","big":false,"partner":null,"opposite":"A35","behind":null,"left":"A47","right":"A45","row_no":4,"facing":"面下排（暱稱寫在上方）","_row":107},{"id":"A47","area":"A","num":47,"cell":"J107","color":"#C8452F","name":"CHY","big":true,"partner":"A48","opposite":"A34","behind":null,"left":"A48","right":"A46","row_no":4,"facing":"面下排（暱稱寫在上方）","_row":107},{"id":"A48","area":"A","num":48,"cell":"I107","color":"#C8452F","name":"CHY","big":true,"partner":"A47","opposite":"A33","behind":null,"left":"A49","right":"A47","row_no":4,"facing":"面下排（暱稱寫在上方）","_row":107},{"id":"A49","area":"A","num":49,"cell":"H107","color":"#C8452F","name":"paul1210","big":true,"partner":"A50","opposite":"A32","behind":null,"left":"A50","right":"A48","row_no":4,"facing":"面下排（暱稱寫在上方）","_row":107},{"id":"A50","area":"A","num":50,"cell":"G107","color":"#C8452F","name":"paul1210","big":true,"partner":"A49","opposite":"A31","behind":null,"left":"A51","right":"A49","row_no":4,"facing":"面下排（暱稱寫在上方）","_row":107},{"id":"A51","area":"A","num":51,"cell":"F107","color":"#C8452F","name":"佐藤慎","big":true,"partner":"A52","opposite":"A30","behind":null,"left":"A52","right":"A50","row_no":4,"facing":"面下排（暱稱寫在上方）","_row":107},{"id":"A52","area":"A","num":52,"cell":"E107","color":"#C8452F","name":"佐藤慎","big":true,"partner":"A51","opposite":"A29","behind":null,"left":null,"right":"A51","row_no":4,"facing":"面下排（暱稱寫在上方）","_row":107}],"warnings":[]};
 
-let DATA = null, BY_ID = {}, ROW_OF = {}, BY_ZONE = {};
+let DATA = null, BY_ID = {}, ROW_OF = {}, BY_ZONE = {}, NOTES_OF = {};
 const $q = document.getElementById("q"), $out = document.getElementById("out"),
       $st = document.getElementById("status"), $notice = document.getElementById("notice");
 
@@ -252,22 +278,27 @@ function padAllIds(d){
 }
 
 function useData(d, note){
-  DATA = d = padAllIds(d); BY_ID = {}; ROW_OF = {}; BY_ZONE = {};
+  DATA = d = padAllIds(d); BY_ID = {}; ROW_OF = {}; BY_ZONE = {}; NOTES_OF = {};
   d.seats.forEach(s => { BY_ID[s.id] = s; s._n = norm(s.name); });
   d.rows.forEach(r => r.seats.forEach(id => ROW_OF[id] = r));
   (d.zones || []).forEach(z => { BY_ZONE[z.no] = z; z._n = norm(`${z.label}${z.name}空白領域${z.no}`); });
+  // 備註欄就是每個座位的介紹／活動，依座位編號建索引，座位頁直接取用
+  (d.notes || []).forEach(n => {
+    if (!n.seat) return;
+    n.seat = padId(n.seat);
+    (NOTES_OF[n.seat] = NOTES_OF[n.seat] || []).push(n);
+  });
   $st.textContent = `${d.occupied} 位玩家已登記，資料更新於 ${d.generated_at}` + (note ? `（${note}）` : "");
   $q.disabled = false;
   $mapToggle.disabled = false;
   if (MAP.built){ MAP.built = false; MAP.cells = {}; buildMap(); }  // 換資料後重畫
-  const q = new URLSearchParams(location.search).get("q");
-  if (q){ $q.value = q; run(q, false); }
-  route(location.pathname, false);
+  route(location.pathname, false);     // 由 route 決定要顯示哪一頁（含 /seat/A0024 與 ?q=）
 }
 
 async function load(){
   try{
-    const r = await fetch("seats.json", {cache:"no-cache"});
+    // 一定要用根目錄路徑：在 /seat/A0024 這種頁面上，相對的 "seats.json" 會變成 /seat/seats.json
+    const r = await fetch("/seats.json", {cache:"no-cache"});
     if (!r.ok) throw new Error(r.status);
     const d = await r.json();
     try{ localStorage.setItem(CACHE_KEY, JSON.stringify(d)); }catch(e){}
@@ -296,10 +327,13 @@ async function load(){
 
 function run(q, push = true){
   if (push){
-    const u = new URL(location); q ? u.searchParams.set("q", q) : u.searchParams.delete("q");
+    const u = new URL(location);
+    u.pathname = "/";        // 從 /seat/A0024 再打字時要回查詢頁，不要變成 /seat/A0024?q=…
+    q ? u.searchParams.set("q", q) : u.searchParams.delete("q");
     history.replaceState(null, "", u);
   }
   if (!DATA) return;
+  setTitle();                 // 離開某個座位頁了，標題先收回來，showSeat／showZone 會再設
   const nq = norm(q);
   if (!nq){ $out.innerHTML = ""; return; }
   const sid = seatIdOf(q);
@@ -330,6 +364,7 @@ function run(q, push = true){
 // 空白領域：只有營區名稱，沒有座位、也沒有對面背後
 function showZone(no){
   const z = BY_ZONE[no]; if (!z) return;
+  setTitle(`${z.label}　${z.name}`);
   $out.innerHTML = `
   <article class="ticket" aria-label="${z.label} 資訊">
     <div class="stub zone"><div class="id">${String(z.no).padStart(2, "0")}</div><div class="sub">空白領域</div></div>
@@ -342,18 +377,24 @@ function showZone(no){
   markMap(null, no);
 }
 
+const seatLink = id => `<a href="/seat/${id}" data-seat="${id}">${id}</a>`;
+
 function who(id){
   if (!id) return null;
   const s = BY_ID[id]; if (!s) return null;
-  return `<button data-id="${id}">${id}</button>　${s.name ? esc(s.name) : "<span style='color:var(--muted)'>未登記</span>"}`;
+  return `${seatLink(id)}　${s.name ? esc(s.name) : "<span style='color:var(--muted)'>未登記</span>"}`;
 }
 
-function showSeat(id){
+/* 每個座位都有自己的一頁：/seat/A0024。
+   nav 決定要不要動網址："push" = 使用者點進來的（上一頁要回得去），
+   "replace" = 打字查出來的（不要把歷史塞滿），null = 本來就是從這個網址進來的。 */
+function showSeat(id, nav = "replace"){
   const s = BY_ID[id];
+  if (!s) return showNoSeat(id, nav);
   const partners = [s.partner].flat().filter(Boolean);
   const neighbours = [s.left, s.right].filter(x => x && !partners.includes(x));
   const rows = [
-    ["同桌", partners.length ? partners.join("、") + "（大桌）" : null],
+    ["同桌", partners.length ? partners.map(seatLink).join("、") + "（大桌）" : null],
     ["對面", who(s.opposite)],
     ["隔壁", neighbours.map(who).filter(Boolean).join("<br>") || null],
     ["背後", who(s.behind)],
@@ -370,11 +411,47 @@ function showSeat(id){
       <ul class="near">${rows.map(([k, v]) => `<li><b>${k}</b><span>${v}</span></li>`).join("")}</ul>
       ${srcLink(s.cell)}
     </div>
+    ${seatAbout(s)}
     ${tableMap(s)}
   </article>`;
   const hit = $out.querySelector(".cell.hit");
   if (hit) hit.scrollIntoView({block:"nearest", inline:"center"});
+  if (nav) setPath(`/seat/${id}`, nav === "push");
+  setTitle(`${id}　${s.area} 區第 ${s.row_no} 排`);
   markMap(id);
+}
+
+/* 這個座位的介紹與活動：玩家寫在原表「備註」欄的內容。
+   大桌兩個編號是同一個人，兩邊的備註都算在這一頁。 */
+function seatAbout(s){
+  const notes = [s.id, ...[s.partner].flat().filter(Boolean)].flatMap(id => NOTES_OF[id] || []);
+  const body = notes.length ? notes.map(n => `
+      <div class="note">
+        <p class="about">${esc(n.text)}</p>
+        <p class="by">${esc(n.name || s.name || "")}${n.seat !== s.id ? `（寫在同桌的 ${n.seat}）` : ""}</p>
+        <div class="row">${srcLink(n.cell, DATA.notes_sheet)}</div>
+      </div>`).join("")
+    : `<p class="none">這個座位還沒有介紹。在原座位表自己那一列的「備註」欄寫字，
+       30 分鐘內就會出現在這裡。</p>`;
+  return `<section class="seat-about" aria-label="${s.id} 的介紹與活動">
+    <h3>介紹與活動</h3>${body}
+    <div class="row">
+      ${navigator.share ? `<button class="linkbtn share" type="button" data-share="/seat/${s.id}"
+        data-title="${esc(shareTitle(s))}">分享我的座位</button>` : ""}
+      <button class="linkbtn" type="button" data-copy="/seat/${s.id}">複製這頁連結</button>
+      <input class="plainlink" type="text" readonly hidden aria-label="這個座位頁的網址">
+    </div>
+  </section>`;
+}
+
+// 網址上的編號原表沒有（打錯字，或那個號碼被障礙物佔掉了）
+function showNoSeat(id, nav){
+  if (nav) setPath(`/seat/${id}`, nav === "push");
+  setTitle(`找不到 ${id}`);
+  $out.innerHTML = `<p class="empty-state">找不到座位 <b>${esc(id)}</b>。
+    原表可能沒有這個編號（有些號碼本來就被障礙物佔掉了），或是編號打錯了。
+    上面的搜尋框可以用暱稱或別的編號再找一次。</p>`;
+  markMap(null);
 }
 
 // 畫出這個座位所在的整張桌子（兩排面對面），版面照原表
@@ -583,7 +660,7 @@ $map.addEventListener("click", e => {
   if (MAP.zoom === "fit"){ setZoom("big"); centerCell(cell); return; }  // 總覽時先放大，避免誤觸
   const q = cell.dataset.id || BY_ZONE[cell.dataset.zone].name;
   $q.value = q;
-  run(q);
+  if (cell.dataset.id) showSeat(cell.dataset.id, "push"); else run(q);
   $out.scrollIntoView({ block:"nearest" });
 });
 
@@ -598,14 +675,27 @@ if (window.ResizeObserver){
 }
 
 /* ── 分頁路由 ───────────────────────────────────────────────────────────
-   後端把 /zones、/board、/food 都送同一份 index.html，路由在前端做。     */
+   後端把 /zones、/board、/food、/seat/A0024 都送同一份 index.html，
+   路由在前端做。                                                        */
 const VIEWS = { "": "seat", "/index.html": "seat", "/map": "seat",
                 "/zones": "zones", "/board": "board", "/food": "food" };
 const RENDER = {};
+const SITE_TITLE = "WirForce 2026 BYOC 座位查詢";   // 不讀 document.title：座位頁的標題是 server 先寫好的
+const setTitle = t => document.title = t ? `${t}｜${SITE_TITLE}` : SITE_TITLE;
+
+// 每個座位一頁：/seat/A0024。手打的 /seat/a24 也收，進來後正規化成 4 碼。
+const seatOfPath = key => { const m = /^\/seat\/([^/]+)$/.exec(key);
+  return m ? seatIdOf(decodeURIComponent(m[1])) : null; };
+
+function setPath(path, push){
+  if (location.pathname === path && !location.search) return;
+  history[push ? "pushState" : "replaceState"]({}, "", path);
+}
 
 function route(path, push = true){
   const key = path.replace(/\/+$/, "");
-  const view = VIEWS[key] ?? "seat";
+  const sid = seatOfPath(key);
+  const view = sid ? "seat" : (VIEWS[key] ?? "seat");
   for (const v of ["seat", "zones", "board", "food"])
     document.getElementById("view-" + v).hidden = v !== view;
   document.querySelectorAll("#tabs a").forEach(a =>
@@ -613,6 +703,18 @@ function route(path, push = true){
   if (push && location.pathname !== path) history.pushState({}, "", path);
   if (RENDER[view]) RENDER[view]();
   if (key === "/map" && DATA && $map.hidden) $mapToggle.click();
+  if (!DATA) return;                       // 資料還沒到，useData 進來時會再跑一次
+  if (sid){                                // 網址本來就是這一頁；只有大小寫／補零要改才動它
+    $q.value = sid;
+    return showSeat(sid, key === `/seat/${sid}` ? null : "replace");
+  }
+  if (view !== "seat"){
+    const tab = document.querySelector(`#tabs a[data-view="${view}"]`);
+    return setTitle(tab ? tab.textContent.trim() : "");
+  }
+  const q = new URLSearchParams(location.search).get("q");
+  if (q){ $q.value = q; return run(q, false); }
+  $q.value = ""; $out.innerHTML = ""; setTitle(); markMap(null);
 }
 
 document.getElementById("tabs").addEventListener("click", e => {
@@ -666,7 +768,7 @@ RENDER.board = () => {
     <ul class="cards">${notes.map(n => `
       <li class="card">
         <div class="row">
-          ${n.seat && BY_ID[n.seat] ? `<a class="seatlink" href="/?q=${n.seat}" data-seat="${n.seat}">${n.seat}</a>` : ""}
+          ${n.seat && BY_ID[n.seat] ? `<a class="seatlink" href="/seat/${n.seat}" data-seat="${n.seat}">${n.seat}</a>` : ""}
           <strong>${esc(n.name || (n.seat ? "" : "（沒有填座位）"))}</strong>
         </div>
         <p class="about">${esc(n.text)}</p>
@@ -709,7 +811,7 @@ const cardClick = e => {
   }
   const s = e.target.closest("a[data-seat]");
   if (s && !e.metaKey && !e.ctrlKey && !e.shiftKey){
-    e.preventDefault(); route("/"); $q.value = s.dataset.seat; run(s.dataset.seat);
+    e.preventDefault(); route(`/seat/${s.dataset.seat}`);
     window.scrollTo({ top: 0 });
   }
 };
@@ -719,10 +821,51 @@ for (const v of ["zones", "board", "food"])
 let t;
 $q.addEventListener("input", e => { clearTimeout(t); t = setTimeout(() => run(e.target.value), 120); });
 $out.addEventListener("click", e => {
+  const sh = e.target.closest("button[data-share]");
+  if (sh) return shareLink(sh);
+  const c = e.target.closest("button[data-copy]");
+  if (c) return copyLink(c);
+  const a = e.target.closest("a[data-seat]");
+  if (a && !e.metaKey && !e.ctrlKey && !e.shiftKey){   // 讓「開新分頁」照常運作
+    e.preventDefault();
+    $q.value = a.dataset.seat; showSeat(a.dataset.seat, "push"); window.scrollTo({top:0});
+    return;
+  }
   const b = e.target.closest("button[data-id],button[data-zone]"); if (!b) return;
-  const q = b.dataset.id || BY_ZONE[b.dataset.zone].name;
-  $q.value = q; run(q); window.scrollTo({top:0});
+  if (b.dataset.id){ $q.value = b.dataset.id; showSeat(b.dataset.id, "push"); }
+  else { const q = BY_ZONE[b.dataset.zone].name; $q.value = q; run(q); }
+  window.scrollTo({top:0});
 });
+
+// 分享文字就是會被貼進 Discord／LINE 的那一行，所以跟社群預覽一樣不放暱稱
+// （見 AGENTS.md「曝光程度」那條，要改先問過 Yellow）
+const shareTitle = s => `${s.id}　${s.area} 區第 ${s.row_no} 排`;
+
+/* 系統分享選單。使用者按取消也會 reject，那不是錯誤，不要跳任何東西。 */
+function shareLink(btn){
+  const url = new URL(btn.dataset.share, location.href).href;
+  navigator.share({ title: btn.dataset.title, text: btn.dataset.title, url })
+    .catch(() => {});
+}
+
+/* 複製座位頁的網址。非 https、或使用者不給剪貼簿權限時都會失敗，
+   那就把網址攤開選起來讓他自己複製 —— 手機瀏覽器這條路比 prompt() 可靠。 */
+function copyLink(btn){
+  const url = new URL(btn.dataset.copy, location.href).href;
+  const done = () => {
+    btn.textContent = "已複製連結";
+    clearTimeout(btn._t); btn._t = setTimeout(() => btn.textContent = "複製這頁連結", 1600);
+  };
+  const show = () => {
+    const i = btn.parentElement.querySelector(".plainlink");
+    if (!i) return;
+    i.hidden = false; i.value = url; i.focus(); i.select();
+    btn.textContent = "這是連結，長按複製";
+  };
+  if (navigator.clipboard && window.isSecureContext)
+    navigator.clipboard.writeText(url).then(done, show);
+  else show();
+}
 $q.disabled = true;
 load();
 </script>

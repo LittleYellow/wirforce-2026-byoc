@@ -50,6 +50,8 @@ python build_seats.py --sheet-id 13n2z8QgxQL-xWLR2K4zy75Xw1aeu6Grf-DuGvZBckXY
 4. 本機 `python -m http.server` 開頁面（**不能用檔案總管直接點開 `index.html`**，`fetch` 讀不到
    `seats.json`，會退回只有 A 區的範例資料），查詢一個暱稱與一個座位編號都能正確顯示，
    地圖三區加空白領域都在。
+   要驗 `/zones`、`/board`、`/food`、`/seat/A0024` 這些網址得改跑 `SHEET_ID=… python server.py`，
+   `http.server` 不會把它們導回 `index.html`，只會回 404。
 
 ## 部署
 
@@ -70,16 +72,42 @@ python build_seats.py --sheet-id 13n2z8QgxQL-xWLR2K4zy75Xw1aeu6Grf-DuGvZBckXY
 
 GitHub Pages 那套（`.github/workflows/update-seats.yml`）**目前停用**但留著當備案，
 要切回去就 `gh workflow enable "更新座位資料"` 並把 Pages source 設成 GitHub Actions。
+注意 Pages 只會送 `/`：`/zones`、`/board`、`/food`、`/seat/A0024` 這些網址在 Pages 上會 404
+（分享出去的座位連結會失效），真的要切回去得補一份 `404.html` 之類的轉址。
 repo 已設好 Actions variable `SHEET_ID`。
 
 再換平台或改架構前，先與 Yellow 確認。
+
+## 單一座位頁（`/seat/A0024`）
+
+**2026-09-22 起 Yellow 追加。** 每個座位編號有自己的網址，可以單獨分享給人。
+內容就是原本的查詢結果卡片，加上「介紹與活動」一段。
+
+- **介紹與活動的來源就是留言板那一份**（`find_notes()` 抓的備註欄），只是改用座位編號索引，
+  同一則備註會同時出現在 `/board` 和那個座位的頁面。**沒有另外新增資料來源，也沒有寫入功能。**
+  大桌的兩個編號是同一個人，任一邊的備註兩頁都顯示，並標註「寫在同桌的 C0093」。
+- 後端 `SEAT_PATH_RE` 只放行「1 英文 + 1～4 數字」，其餘 404；
+  前端 `seatOfPath()` 把 `/seat/a24` 正規化成 `/seat/A0024`（`replaceState`，不多留一筆歷史）。
+  原表沒有的編號（例如 `A0161`）會顯示「找不到這個座位」而不是空白頁。
+- **`index.html` 裡讀 `seats.json` 一定要用 `/seats.json`**：在 `/seat/A0024` 這種多一層的路徑上，
+  相對路徑會變成 `/seat/seats.json`，頁面會靜悄悄地退回 localStorage 的舊資料。
+- 曝光程度刻意維持原狀：分頁標題只有編號與排數（`A0024　A 區第 2 排`），**不放暱稱**，
+  免得連結貼到 Discord／LINE 時預覽就把人的暱稱攤開來。也沒有做 sitemap 或任何全名單索引。
+  要改這兩件事之一，先與 Yellow 確認，見下方協作原則。
+- **社群預覽由後端寫死（2026-09-22 起）。** 貼連結到 Discord／LINE／Threads 時，對方的伺服器
+  只抓 HTML、不執行 JavaScript，所以前端 `route()` 設的標題它們看不到。`server.py` 的
+  `seat_meta()` 針對 `/seat/XXXX` 換掉 `index.html` 裡 `<!--meta-->…<!--/meta-->` 那一段。
+  **改 `index.html` 的 `<head>` 時不要動掉這兩個標記**，`main()` 找不到會直接拒絕啟動。
+  `seat_meta()` 刻意只吃 `id`／`area`／`row_no`／`facing`／`big` —— 把暱稱清掉再產一次結果
+  必須一模一樣，這是上面那條決定的機器檢查方式。前端「分享我的座位」的文字同理。
 
 ## 其他三個頁面的資料來源
 
 - **空白領域介紹**：寫在「空白領域」工作表裡、團名那格的**正下方**。14 個營區目前只有 1 則
   （空白領域06 →「深夜食堂 及日版KTV」），頁面會照實顯示「還沒有填介紹」，原表補了就會自動出現。
 - **留言板**：`find_notes()` 掃出有「編號／ID／備註」三欄的工作表（目前叫「美食座位地圖」，
-  **名字會騙人，它不是美食地圖**），取備註欄。目前 5 則。
+  **名字會騙人，它不是美食地圖**），取備註欄。目前 5 則。同一份資料也餵給座位頁的
+  「介紹與活動」（2026-09-22 實測 7 則有填座位編號）。
 - **美食與設施**：`find_places()` 靠關鍵字從場地圖挑招牌。原表沒有任何欄位標記這些，所以：
   - 維護者的閒聊也常提到星巴克、7-11，用 `CHATTY_RE`（有句讀就不是招牌）排掉
   - 座位帶範圍內的一律不算，那是暱稱

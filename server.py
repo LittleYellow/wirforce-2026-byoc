@@ -15,8 +15,10 @@
   REFRESH_MINUTES   預設 30
 """
 import gzip
+import html
 import json
 import os
+import re
 import shutil
 import sys
 import threading
@@ -117,6 +119,8 @@ class Seats:
         self.last_error = None
         self.attempts = 0
         self.failures = 0
+        self.by_id = {}
+        self.generation = 0        # 資料換一次就加一，座位頁的快取靠它作廢
 
     def update(self, data: dict):
         body = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode()
@@ -130,10 +134,18 @@ class Seats:
             self.zones = len(data.get("zones") or [])
             self.warnings = data.get("warnings") or []
             self.last_error = None
+            # 座位頁要即時組社群預覽，另外留一份查得動的索引
+            self.by_id = {x["id"]: x for x in data.get("seats") or []}
+            self.generation += 1
 
     def snapshot(self):
         with self._lock:
             return self.asset
+
+    def seat(self, sid):
+        """回傳 (座位, 版號)。拿著版號才知道座位頁的快取還算不算數。"""
+        with self._lock:
+            return self.by_id.get(sid), self.generation
 
     def health(self):
         with self._lock:
@@ -154,7 +166,67 @@ class Seats:
 
 
 SEATS = Seats()
-PAGE = None     # index.html，啟動時讀一次
+PAGE = None                    # index.html 原版，啟動時讀一次
+PAGE_HEAD = PAGE_TAIL = None   # 以 <!--meta--> 為界拆兩半，座位頁換掉中間那段
+META_OPEN, META_CLOSE = "<!--meta-->", "<!--/meta-->"
+SEAT_PATH_RE = re.compile("^/seat/([A-Za-z])0*([0-9]{1,4})$")
+SEAT_PAGES = {}                # (座位編號, 網域) -> Asset
+SEAT_PAGES_GEN = -1            # 這批快取是用哪個版本的座位資料做的
+SEAT_PAGES_LOCK = threading.Lock()
+SITE_NAME = "WirForce 2026 BYOC 座位查詢"
+
+
+def seat_meta(s: dict, url: str) -> str:
+    """一個座位的社群預覽。
+
+    貼連結到 Discord／LINE／Threads 時，對方的伺服器只抓 HTML、不執行 JavaScript，
+    所以這段一定要在後端就寫好——前端 route() 設的標題它們看不到。
+
+    **刻意不放暱稱**（見 AGENTS.md）：預覽會出現在聊天室裡，貼一個連結就把人的暱稱
+    攤開來不是玩家自己同意的事。要改這條先問過 Yellow。
+    """
+    e = lambda x: html.escape(str(x), quote=True)
+    title = "{}　{} 區第 {} 排".format(s["id"], s["area"], s["row_no"])
+    bits = [title]
+    facing = (s.get("facing") or "").split("（")[0].strip()
+    if facing:
+        bits.append(facing)
+    if s.get("big"):
+        bits.append("大桌")
+    desc = "，".join(bits) + "。這一頁有同桌、對面、背後、隔壁，以及整張桌子的位置圖。"
+    tags = [
+        "<title>{}｜{}</title>".format(e(title), e(SITE_NAME)),
+        '<meta name="description" content="{}">'.format(e(desc)),
+        '<meta property="og:type" content="website">',
+        '<meta property="og:site_name" content="{}">'.format(e(SITE_NAME)),
+        '<meta property="og:title" content="{}">'.format(e(title)),
+        '<meta property="og:description" content="{}">'.format(e(desc)),
+        '<meta property="og:url" content="{}">'.format(e(url)),
+        '<meta name="twitter:card" content="summary">',
+    ]
+    return "\n".join(tags) + "\n"
+
+
+def seat_page(sid: str, base: str):
+    """座位頁：內容跟首頁同一份，只有 <head> 那段社群預覽不同。找不到座位回 None。"""
+    global SEAT_PAGES_GEN
+    s, gen = SEATS.seat(sid)
+    if s is None:
+        return None
+    key = (sid, base)
+    with SEAT_PAGES_LOCK:
+        if SEAT_PAGES_GEN != gen:      # 座位表更新了，整批重做
+            SEAT_PAGES.clear()
+            SEAT_PAGES_GEN = gen
+        hit = SEAT_PAGES.get(key)
+    if hit:
+        return hit
+    asset = Asset((PAGE_HEAD + seat_meta(s, base + "/seat/" + sid) + PAGE_TAIL).encode(),
+                  "text/html; charset=utf-8")
+    with SEAT_PAGES_LOCK:
+        if SEAT_PAGES_GEN == gen:      # 組的過程中又更新了就不要存，下次重做
+            SEAT_PAGES[key] = asset
+    return asset
 
 
 def fetch_once() -> bool:
@@ -237,11 +309,24 @@ class Handler(BaseHTTPRequestHandler):
     # 前端自己做路由，這些 path 一律送同一份 index.html
     PAGES = ("/", "/index.html", "/zones", "/board", "/food", "/map")
 
+    def _base_url(self) -> str:
+        """組 og:url 用。Zeabur 在前面擋了一層，真正的協定與網域在 X-Forwarded-* 裡。"""
+        proto = (self.headers.get("X-Forwarded-Proto") or "https").split(",")[0].strip()
+        host = (self.headers.get("X-Forwarded-Host") or self.headers.get("Host") or "").split(",")[0].strip()
+        return proto + "://" + host
+
     def do_GET(self):
         path = self.path.split("?", 1)[0].rstrip("/") or "/"
         if path in self.PAGES:
             # 頁面本身很少變，但別讓瀏覽器快取太久，改版才推得動
             return self._send(PAGE, "public, max-age=300, must-revalidate")
+        m = SEAT_PATH_RE.match(path)
+        if m:
+            # 原表沒有的編號（打錯字，或號碼被障礙物佔掉）就送原版頁面，
+            # 前端會顯示「找不到這個座位」——比直接 404 好，使用者還能繼續查別的
+            sid = m.group(1).upper() + m.group(2).zfill(4)
+            page = seat_page(sid, self._base_url()) or PAGE
+            return self._send(page, "public, max-age=300, must-revalidate")
         if path == "/seats.json":
             asset = SEATS.snapshot()
             if asset is None:
@@ -263,6 +348,13 @@ def main():
     if not page.exists():
         sys.exit(f"找不到 {page}")
     PAGE = Asset(page.read_bytes(), "text/html; charset=utf-8")
+    text = page.read_text(encoding="utf-8")
+    if META_OPEN not in text or META_CLOSE not in text:
+        sys.exit("index.html 裡找不到 " + META_OPEN + " ... " + META_CLOSE
+                 + " 這段，座位頁沒辦法換社群預覽")
+    global PAGE_HEAD, PAGE_TAIL
+    PAGE_HEAD = text.split(META_OPEN, 1)[0]
+    PAGE_TAIL = text.split(META_CLOSE, 1)[1]
 
     log(f"啟動：每 {REFRESH_MINUTES:g} 分鐘重抓一次，sheet {SHEET_ID}")
     d = probe_data_dir()
