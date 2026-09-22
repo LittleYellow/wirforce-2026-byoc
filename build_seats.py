@@ -144,7 +144,13 @@ def find_zones(grid: Grid):
 
 
 def zone_notes(grid: Grid, zones):
-    """營區介紹：寫在「空白領域N 團名」那格的正下方。原表多半還沒寫，有多少算多少。"""
+    """營區介紹：寫在「空白領域N 團名」那格的正下方。原表多半還沒寫，有多少算多少。
+
+    只讀一格是故意的。這個函式會對**每一張**工作表跑一次，而地圖那兩張的營區方塊
+    底下就是座位暱稱——往下多掃幾列想撈「分成好幾列寫」的情況，會把整排暱稱吸進來
+    當成介紹（實測 14 個營區有 12 個被汙染）。原表那塊是 5 列 3 欄的合併格，
+    值一定落在左上角，所以一格就夠；要多行請在那一格裡用 Alt+Enter 換行。
+    """
     for z in zones:
         col = column_index_from_string("".join(ch for ch in z["cell"] if ch.isalpha()))
         t = grid.text.get((z["r1"] + 1, col)) or grid.text.get((z["r"] + 1, col))
