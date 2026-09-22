@@ -417,7 +417,7 @@ function showSeat(id, nav = "replace"){
   const hit = $out.querySelector(".cell.hit");
   if (hit) hit.scrollIntoView({block:"nearest", inline:"center"});
   if (nav) setPath(`/seat/${id}`, nav === "push");
-  setTitle(`${id}　${s.area} 區第 ${s.row_no} 排`);
+  setTitle(shareTitle(s));
   markMap(id);
 }
 
@@ -837,9 +837,10 @@ $out.addEventListener("click", e => {
   window.scrollTo({top:0});
 });
 
-// 分享文字就是會被貼進 Discord／LINE 的那一行，所以跟社群預覽一樣不放暱稱
-// （見 AGENTS.md「曝光程度」那條，要改先問過 Yellow）
-const shareTitle = s => `${s.id}　${s.area} 區第 ${s.row_no} 排`;
+/* 分頁標題、分享文字、後端的社群預覽三個要長一樣，不然預覽有名字、點進去標題沒有，
+   會閃一下。放自己的暱稱，不放鄰居的——見 AGENTS.md「曝光程度」那條。
+   server.py 的 seat_meta() 是同一套規則，改這裡要一起改。 */
+const shareTitle = s => `${s.id}　${s.name || `${s.area} 區第 ${s.row_no} 排`}`;
 
 /* 系統分享選單。使用者按取消也會 reject，那不是錯誤，不要跳任何東西。 */
 function shareLink(btn){

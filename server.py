@@ -182,12 +182,15 @@ def seat_meta(s: dict, url: str) -> str:
     貼連結到 Discord／LINE／Threads 時，對方的伺服器只抓 HTML、不執行 JavaScript，
     所以這段一定要在後端就寫好——前端 route() 設的標題它們看不到。
 
-    **刻意不放暱稱**（見 AGENTS.md）：預覽會出現在聊天室裡，貼一個連結就把人的暱稱
-    攤開來不是玩家自己同意的事。要改這條先問過 Yellow。
+    放**這個座位自己的**暱稱（2026-09-22 Yellow 決定，見 AGENTS.md）：分享的是自己的位置，
+    名字就是重點。但**別人的暱稱一個都不放**——對面、隔壁、背後是誰，要點進來才看得到，
+    不會因為某個人把連結貼到聊天室，就順便把鄰居的暱稱一起攤出去。
     """
     e = lambda x: html.escape(str(x), quote=True)
-    title = "{}　{} 區第 {} 排".format(s["id"], s["area"], s["row_no"])
-    bits = [title]
+    where = "{} 區第 {} 排".format(s["area"], s["row_no"])
+    name = (s.get("name") or "").strip()
+    title = "{}　{}".format(s["id"], name or where)
+    bits = ["{}　{}".format(s["id"], where)]
     facing = (s.get("facing") or "").split("（")[0].strip()
     if facing:
         bits.append(facing)
