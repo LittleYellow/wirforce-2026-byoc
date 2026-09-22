@@ -199,8 +199,11 @@ footer a{color:inherit}
   <nav class="tabs" id="tabs" aria-label="頁面">
     <a href="/" data-view="seat">座位查詢</a>
     <a href="/zones" data-view="zones">空白領域</a>
-    <a href="/board" data-view="board">留言板</a>
-    <a href="/food" data-view="food">美食與設施</a>
+    <!-- 留言板與美食與設施：2026-09-22 Yellow 決定先不對外，留言板的形式還沒定案。
+         路由、頁面、資料解析都還在，直接打 /board、/food 仍然打得開——
+         要公開就把下面兩行的註解拿掉，不用改其他任何地方。 -->
+    <!-- <a href="/board" data-view="board">留言板</a> -->
+    <!-- <a href="/food" data-view="food">美食與設施</a> -->
   </nav>
 
   <section id="view-seat">
@@ -721,6 +724,8 @@ if (window.ResizeObserver){
    路由在前端做。                                                        */
 const VIEWS = { "": "seat", "/index.html": "seat", "/map": "seat",
                 "/zones": "zones", "/board": "board", "/food": "food" };
+// 分頁標題。本來是讀導覽列的按鈕文字，但收起來的頁面沒有按鈕可讀。
+const VIEW_TITLES = { zones: "空白領域", board: "留言板", food: "美食與設施" };
 const RENDER = {};
 const SITE_TITLE = "WirForce 2026 BYOC 座位查詢";   // 不讀 document.title：座位頁的標題是 server 先寫好的
 const setTitle = t => document.title = t ? `${t}｜${SITE_TITLE}` : SITE_TITLE;
@@ -761,10 +766,8 @@ function route(path, push = true){
     $q.value = z ? z.name : "";
     return showZone(zno, key === `/zone/${zpad(zno)}` ? null : "replace");
   }
-  if (view !== "seat"){
-    const tab = document.querySelector(`#tabs a[data-view="${view}"]`);
-    return setTitle(tab ? tab.textContent.trim() : "");
-  }
+  if (view !== "seat")
+    return setTitle(VIEW_TITLES[view] || "");
   const q = new URLSearchParams(location.search).get("q");
   if (q){ $q.value = q; return run(q, false); }
   $q.value = ""; $out.innerHTML = ""; setTitle(); markMap(null);
